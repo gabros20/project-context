@@ -1,0 +1,18 @@
+{
+  "importance": "high",
+  "scope": ["auth"],
+  "context": "Authentication has moved from strict single-use refresh-token invalidation to bounded previous-token grace. Immediate invalidation was rejected after concurrency tests confirmed legitimate near-simultaneous refresh requests. The current implementation preserves replay protection outside the grace interval. Unit and integration behavior is stable; the remaining question is whether previous-token state must move to shared storage when auth workers are horizontally scaled.",
+  "durable_state": {
+    "architecture": ["Refresh tokens rotate with one immediately previous token accepted only during a bounded grace interval."],
+    "decisions": ["Strict immediate invalidation is not compatible with observed client retry concurrency."],
+    "constraints": ["Replay outside the grace interval must remain rejected."],
+    "known_failed_approaches": ["Immediate single-use invalidation."],
+    "successful_approaches": ["One-token bounded grace."],
+    "completed": ["Rotation implementation.", "Concurrency tests."],
+    "open_work": ["Confirm distributed storage strategy for multi-instance deployments."]
+  },
+  "current_state": {
+    "status": "in_progress",
+    "next_steps": ["Inspect production topology and move grace state to Redis if requests can land on different auth workers."]
+  }
+}

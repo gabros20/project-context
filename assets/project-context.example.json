@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "enabled": true,
+  "log": ".agent/PROJECT_CONTEXT.jsonl",
+  "schema_copy": ".agent/PROJECT_CONTEXT.schema.json",
+  "startup": {
+    "latest_without_reflection": 6,
+    "token_budget": 2200,
+    "compact_token_budget": 1200
+  },
+  "retrieval": {
+    "latest": 10,
+    "token_budget": 3000
+  },
+  "reflection": {
+    "suggest_after_observations": 20
+  },
+  "hooks": {
+    "stop_check": false
+  },
+  "scopes": []
+}

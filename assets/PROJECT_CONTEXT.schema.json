@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:project-context:schema:v1",
+  "title": "Project Context Entry",
+  "type": "object",
+  "required": [
+    "version",
+    "timestamp",
+    "entry_id",
+    "record_type",
+    "importance",
+    "agent",
+    "repository",
+    "scope",
+    "context"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "entry_id": {"type": "string", "minLength": 8},
+    "record_type": {"enum": ["observation", "reflection", "handoff"]},
+    "importance": {"enum": ["low", "medium", "high", "critical"]},
+    "agent": {
+      "type": "object",
+      "required": ["name", "session_id"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "session_id": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "repository": {
+      "type": "object",
+      "required": ["name", "branch", "worktree", "head_commit", "dirty"],
+      "properties": {
+        "name": {"type": "string"},
+        "branch": {"type": "string"},
+        "worktree": {"type": "string"},
+        "head_commit": {"type": "string"},
+        "dirty": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "status": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "scope": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "context": {"type": "string", "minLength": 1},
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["decision", "rationale"],
+        "properties": {
+          "decision": {"type": "string"},
+          "rationale": {"type": "string"},
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["option", "outcome"],
+              "properties": {
+                "option": {"type": "string"},
+                "outcome": {"type": "string"},
+                "reason": {"type": "string"}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["approach", "outcome"],
+        "properties": {
+          "approach": {"type": "string"},
+          "outcome": {"enum": ["worked", "failed", "partial", "inconclusive", "abandoned"]},
+          "reason": {"type": "string"},
+          "evidence": {"type": "string"},
+          "learning": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "learnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "statement", "confidence"],
+        "properties": {
+          "type": {"enum": ["fact", "invariant", "constraint", "convention", "gotcha", "hypothesis", "open_question"]},
+          "statement": {"type": "string"},
+          "confidence": {"enum": ["confirmed", "likely", "tentative"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "changes": {
+      "type": "object",
+      "properties": {
+        "commits": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "operation"],
+            "properties": {
+              "path": {"type": "string"},
+              "operation": {"enum": ["added", "modified", "deleted", "renamed", "copied", "untracked", "unknown"]},
+              "purpose": {"type": "string"}
+            },
+            "additionalProperties": true
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "type"],
+            "properties": {
+              "path": {"type": "string"},
+              "type": {"type": "string"},
+              "purpose": {"type": "string"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "outcome"],
+        "properties": {
+          "check": {"type": "string"},
+          "outcome": {"enum": ["passed", "failed", "partial", "not_run", "inconclusive"]},
+          "details": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "current_state": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string"},
+        "working": {"type": "array", "items": {"type": "string"}},
+        "remaining": {"type": "array", "items": {"type": "string"}},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "open_questions": {"type": "array", "items": {"type": "string"}},
+        "next_steps": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "related_entries": {
+      "type": "object",
+      "properties": {
+        "supersedes": {"type": "array", "items": {"type": "string"}},
+        "resolves": {"type": "array", "items": {"type": "string"}},
+        "related": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "durable_state": {
+      "type": "object",
+      "properties": {
+        "architecture": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "constraints": {"type": "array", "items": {"type": "string"}},
+        "known_failed_approaches": {"type": "array", "items": {"type": "string"}},
+        "successful_approaches": {"type": "array", "items": {"type": "string"}},
+        "completed": {"type": "array", "items": {"type": "string"}},
+        "open_work": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "from_entry_id": {"type": "string"},
+        "through_entry_id": {"type": "string"},
+        "supporting_entry_ids": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "tags": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"record_type": {"const": "handoff"}}},
+      "then": {"required": ["current_state"]}
+    },
+    {
+      "if": {"properties": {"record_type": {"const": "reflection"}}},
+      "then": {"required": ["durable_state", "coverage"]}
+    }
+  ],
+  "additionalProperties": true
+}

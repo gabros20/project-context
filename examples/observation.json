@@ -1,0 +1,69 @@
+{
+  "record_type": "observation",
+  "importance": "high",
+  "task": {
+    "id": "auth-refresh",
+    "title": "Implement refresh-token rotation",
+    "status": "in_progress"
+  },
+  "scope": ["auth", "api"],
+  "context": "The existing refresh-token implementation invalidated the old token immediately after rotation. Concurrency testing showed that the frontend can legitimately issue two refresh requests nearly simultaneously because the HTTP client retries one failed request. Immediate invalidation therefore treats the second legitimate request as replay and logs the user out. This work changed the design to retain the immediately previous token for a bounded grace period while still rejecting older replay. The remaining architectural question is whether the grace state must live in shared storage for horizontally scaled deployments.",
+  "decisions": [
+    {
+      "decision": "Allow the immediately previous refresh token during a bounded grace window.",
+      "rationale": "Legitimate concurrent refreshes otherwise create false token-reuse detection.",
+      "alternatives": [
+        {
+          "option": "Strict immediate invalidation",
+          "outcome": "rejected",
+          "reason": "Fails when the client generates concurrent refresh requests."
+        }
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "approach": "Invalidate each refresh token immediately after first use.",
+      "outcome": "failed",
+      "reason": "The second concurrent refresh is treated as malicious replay.",
+      "evidence": "Concurrency test reproduced logout with two close refresh requests.",
+      "learning": "Bounded legitimate concurrency must be distinguished from later replay."
+    },
+    {
+      "approach": "Accept the previous refresh token during a bounded grace period.",
+      "outcome": "worked",
+      "evidence": "Concurrency test passes while replay after the grace interval remains rejected."
+    }
+  ],
+  "learnings": [
+    {
+      "type": "invariant",
+      "statement": "The client may issue two legitimate refresh requests concurrently.",
+      "confidence": "confirmed"
+    },
+    {
+      "type": "open_question",
+      "statement": "The grace-window state may need shared storage in multi-instance deployments.",
+      "confidence": "tentative"
+    }
+  ],
+  "verification": [
+    {
+      "check": "pnpm test tests/auth/concurrency.test.ts",
+      "outcome": "passed",
+      "details": "Concurrency and delayed-replay coverage passed."
+    }
+  ],
+  "current_state": {
+    "status": "in_progress",
+    "working": [
+      "Normal refresh rotation succeeds.",
+      "Concurrent legitimate refreshes succeed.",
+      "Replay after the grace interval is rejected."
+    ],
+    "remaining": ["Confirm storage strategy for horizontally scaled deployment."],
+    "open_questions": ["Does grace state need Redis in production?"],
+    "next_steps": ["Inspect deployment topology and existing Redis infrastructure."]
+  },
+  "tags": ["security", "tokens"]
+}

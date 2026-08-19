@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "Continue the auth refresh work in this repository and pick up where the other agent stopped.",
+    "should_trigger": true,
+    "expected": "Retrieve relevant project context before modifying auth code and append durable context after meaningful work."
+  },
+  {
+    "prompt": "Implement the remaining work from PROJECT_CONTEXT.jsonl.",
+    "should_trigger": true,
+    "expected": "Use targeted context retrieval and honor handoff/reflection state."
+  },
+  {
+    "prompt": "What does git rebase do?",
+    "should_trigger": false,
+    "expected": "Do not activate project-context for a generic explanation unrelated to a configured repository."
+  }
+]

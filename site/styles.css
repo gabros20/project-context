@@ -70,6 +70,12 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+.icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+}
+
 ::selection {
   background: var(--primary);
   color: var(--on-primary);
@@ -188,7 +194,7 @@ a {
   align-items: center;
   gap: clamp(2rem, 4vw, 5rem);
   min-height: calc(100svh - 4.75rem);
-  padding-block: clamp(5rem, 10vw, 9rem);
+  padding-block: clamp(3rem, 5vw, 5rem) clamp(5rem, 8vw, 8rem);
 }
 
 .hero-copy {
@@ -207,7 +213,7 @@ a {
   max-width: 8.5ch;
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(4.5rem, 9vw, 9rem);
+  font-size: clamp(4.5rem, 7.25vw, 7.5rem);
   font-stretch: condensed;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -389,6 +395,74 @@ a {
   padding: 1.25rem;
 }
 
+.motion-ready .hero-ledger .ledger-entry,
+.motion-ready .hero-ledger .ledger-caret {
+  opacity: 0;
+  transform: translateY(0.75rem);
+}
+
+.motion-ready .hero-ledger .ledger-entry::before {
+  opacity: 0;
+  transform: scaleY(0.35);
+  transform-origin: center top;
+}
+
+.motion-ready .hero-ledger .live-status i {
+  animation: ledger-live 1.2s var(--ease-in-out) 0.2s 3 both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-observation {
+  animation: ledger-entry-in 0.55s var(--ease-out) 0.35s both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-observation::before {
+  animation: ledger-spine-in 0.5s var(--ease-out) 0.43s both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-attempt {
+  animation: ledger-entry-in 0.55s var(--ease-out) 1.2s both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-attempt::before {
+  animation: ledger-spine-in 0.5s var(--ease-out) 1.28s both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-handoff {
+  animation: ledger-entry-in 0.55s var(--ease-out) 2.05s both;
+}
+
+.motion-ready .hero-ledger .ledger-entry-handoff::before {
+  animation: ledger-spine-in 0.5s var(--ease-out) 2.13s both;
+}
+
+.motion-ready .hero-ledger .ledger-caret {
+  animation: ledger-entry-in 0.55s var(--ease-out) 2.9s both;
+}
+
+.motion-ready .hero-ledger .ledger-caret span {
+  animation: ledger-caret-pulse 0.8s linear 3.35s 3 both;
+}
+
+@keyframes ledger-entry-in {
+  from { opacity: 0; transform: translateY(0.75rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ledger-spine-in {
+  from { opacity: 0; transform: scaleY(0.35); }
+  to { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes ledger-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.9); }
+}
+
+@keyframes ledger-caret-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
 .ledger-caret span {
   display: block;
   width: 0.55rem;
@@ -488,7 +562,11 @@ a {
 }
 
 .replay-button {
+  display: inline-flex;
   min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   padding: 0 0.9rem;
@@ -970,6 +1048,7 @@ a {
 
 .text-link {
   display: inline-flex;
+  align-items: center;
   gap: 0.55rem;
   margin-top: 2rem;
   color: var(--primary-hover);
@@ -1211,6 +1290,9 @@ a {
 }
 
 .install-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
   color: #fff;
   font: 600 0.7rem/1.4 var(--font-mono);
   text-decoration-thickness: 1px;
@@ -1615,6 +1697,19 @@ a {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .motion-ready .hero-ledger .ledger-entry,
+  .motion-ready .hero-ledger .ledger-caret,
+  .motion-ready .hero-ledger .ledger-entry::before {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .motion-ready .hero-ledger .live-status i,
+  .motion-ready .hero-ledger .ledger-caret span {
+    animation: none;
   }
 
   .skip-link,

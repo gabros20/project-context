@@ -17,3 +17,7 @@ No A0 issues were found. The motion uses only transform and opacity, and the mob
 ## Round 2
 
 The three promoted findings are resolved. Desktop and mobile compositions remain balanced, focus-visible styles are present, reduced motion presents a complete static diagram, and browser console/error checks are clean.
+
+## Hero refinement
+
+The desktop headline scale was reduced and the hero's top inset tightened so the thesis and ledger begin as one composition. The ledger now explains append order with a finite, one-shot entry sequence; it does not loop or keep readable data in motion. Reduced-motion users receive the complete static ledger.

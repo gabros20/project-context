@@ -20,7 +20,7 @@ colors:
 typography:
   display:
     fontFamily: "Arial Narrow, Avenir Next Condensed, sans-serif"
-    fontSize: 112px
+    fontSize: 104px
     fontWeight: 700
     lineHeight: 0.88
     letterSpacing: -0.03em
@@ -122,7 +122,7 @@ Never use gradient-filled text. Never introduce purple, acid green, or a decorat
 
 ## Typography
 
-The hero uses a condensed system display stack at a deliberately oversized scale. Its narrow letterforms evoke log columns and leave space for the asymmetric visualization. Tracking stops at `-0.03em`; glyphs must never touch.
+The hero uses a condensed system display stack at an assertive scale that remains subordinate to the ledger artifact. Its narrow letterforms evoke log columns and leave space for the asymmetric visualization. Tracking stops at `-0.03em`; glyphs must never touch.
 
 Body and headings use the platform's humanist UI sans stack for reliable rendering without a font download. Utility labels, JSONL fragments, timestamps, and commands use the platform mono stack. Each section uses no more than three sizes, and prose stays within 45–70 characters per line.
 
@@ -157,7 +157,7 @@ The logo combines an open ledger spine with two opposing context brackets. It mu
 
 ## Do's and Don'ts
 
-- Do make the memory relay the only conspicuous animated moment.
+- Do reserve explanatory motion for the hero ledger append and the memory relay.
 - Do keep every claim specific to the shipped protocol and verified adapter capabilities.
 - Do expose strong focus states, 44px targets, semantic headings, and reduced-motion behavior.
 - Do use cobalt for action and orange only for active continuation state.
@@ -167,11 +167,15 @@ The logo combines an open ledger spine with two opposing context brackets. It mu
 - Don't animate data the reader is actively trying to inspect.
 - Don't add a second ornamental device when spacing, type, or alignment can solve the problem.
 
+## Iconography
+
+Use the Lucide system at 18px with its native 2px rounded stroke. Vendor only the required SVG paths so the static site remains dependency-free and compatible with the strict Content Security Policy. Never use Unicode arrows or refresh glyphs as interface icons.
+
 ## Motion
 
-Motion frequency is rare and its named purpose is **explanation**. The relay plays once when it first enters view and can be replayed with a real button.
+Motion frequency is rare and its named purpose is **explanation**. The hero ledger appends its three records once on load, then settles. The relay plays once when it first enters view and can be replayed with a real button.
 
-- Use CSS animations for the predetermined packet path and WAAPI only to restart a grouped sequence.
+- Use CSS animations for the predetermined ledger append and packet paths, with JavaScript limited to restarting the relay's grouped sequence.
 - Animate only `transform` and `opacity`.
 - Entrances use `cubic-bezier(0.23, 1, 0.32, 1)`; on-screen packet movement uses `cubic-bezier(0.77, 0, 0.175, 1)`; constant connector progress is linear.
 - UI hover/press feedback stays between 100–180ms. The explanatory sequence may run for 7 seconds because it carries a four-stage mental model.

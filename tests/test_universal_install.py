@@ -37,7 +37,7 @@ class UniversalInstallTests(unittest.TestCase):
             p=run_install(["hooks","--hosts","all","--scope","project","--project-root",str(repo)],home)
             expected=[
                 repo/".claude/settings.json", repo/".codex/hooks.json", repo/".grok/hooks/project-context.json",
-                repo/".opencode/plugins/project-context.js", repo/".cursor/hooks.json", repo/".factory/hooks.json",
+                repo/".opencode/plugins/project-context.js", repo/".opencode/commands/project-context.md", repo/".cursor/hooks.json", repo/".factory/hooks.json",
                 repo/".pi/extensions/project-context.ts", repo/".agents/hooks.json",
                 repo/".hermes/plugins/project-context/plugin.yaml", repo/".hermes/plugins/project-context/__init__.py",
                 repo/"hooks/project-context/HOOK.md", repo/"hooks/project-context/handler.js",
@@ -48,6 +48,7 @@ class UniversalInstallTests(unittest.TestCase):
             self.assertFalse((home/".claude/settings.json").exists())
             self.assertFalse((home/".codex/hooks.json").exists())
             self.assertIn("trust",p.stdout.lower())
+            self.assertIn('from "node:os"', (repo/"hooks/project-context/handler.js").read_text())
 
     def test_project_install_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -60,7 +61,23 @@ class UniversalInstallTests(unittest.TestCase):
     def test_skill_locations_and_manifest_cover_all_hosts(self):
         data=json.loads((ROOT/"adapters/HOSTS.json").read_text())
         self.assertEqual(set(data["hosts"]),set(HOSTS))
-        self.assertEqual(data["version"],"0.3.0")
+        self.assertEqual(data["version"],"0.4.0")
+        for host in HOSTS:
+            self.assertIn("primary", data["hosts"][host]["invocation"])
+            self.assertIn("startup_injection", data["hosts"][host]["lifecycle"])
+            self.assertIn("stop_behavior", data["hosts"][host]["lifecycle"])
+            self.assertTrue(data["hosts"][host]["evidence"])
+
+    def test_project_skills_prefer_shared_agents_path_where_supported(self):
+        with tempfile.TemporaryDirectory() as td:
+            base=pathlib.Path(td); home=base/"home"; home.mkdir(); repo=self.repo(td)
+            run_install(["skills","--hosts","all","--scope","project","--project-root",str(repo)],home)
+            self.assertTrue((repo/".agents/skills/project-context/SKILL.md").exists())
+            self.assertTrue((repo/".claude/skills/project-context/SKILL.md").exists())
+            self.assertTrue((repo/".grok/skills/project-context/SKILL.md").exists())
+            self.assertTrue((repo/".factory/skills/project-context/SKILL.md").exists())
+            self.assertFalse((repo/".opencode/skills/project-context").exists())
+            self.assertFalse((repo/".pi/skills/project-context").exists())
 
     def test_invalid_project_json_is_refused(self):
         with tempfile.TemporaryDirectory() as td:

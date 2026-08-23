@@ -1,9 +1,9 @@
 ---
 name: project-context
-description: Use this skill in repositories configured for shared PROJECT_CONTEXT.jsonl memory, including when AGENTS.md or CLAUDE.md mentions project-context. Retrieve targeted recent/reflected state before relevant coding work; append rich durable observations, decisions, failed/successful attempts, learnings, verification, blockers, and handoffs after meaningful work; create reflections to consolidate older history. Do not use it as a transcript or tool-call log.
+description: Shared PROJECT_CONTEXT.jsonl project memory. Invoked directly with no instruction, it immediately checkpoints the current session: review the work, choose the record type, compose the record, and append it. Also use it in repositories configured for this memory, including when AGENTS.md or CLAUDE.md mentions project-context: retrieve targeted recent/reflected state before relevant coding work; append rich durable observations, decisions, failed/successful attempts, learnings, verification, blockers, and handoffs after meaningful work; create reflections to consolidate older history. Do not use it as a transcript or tool-call log.
 compatibility: Requires Python 3.10+ and Git for repository metadata. Designed for multi-agent coding environments; host adapters are included for Claude Code, Codex, Grok Build, OpenCode, Cursor CLI, Factory Droid, Pi, Antigravity, Hermes Agent, and OpenClaw.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
   protocol-version: "1"
 ---
 
@@ -18,6 +18,29 @@ Maintain durable shared project memory between independent coding-agent sessions
 Store enough context that a capable agent unfamiliar with the previous session can understand the relevant project state, why decisions were made, what was tried, what failed or worked, what was learned, what was verified, and what remains open.
 
 Do not optimize records into cryptic fragments. Storage may be rich. Token efficiency comes from targeted retrieval and reflection.
+
+## Direct invocation means "checkpoint this session"
+
+When this skill is invoked directly and the user gives no other instruction, that request is complete
+in itself: log the session. Do it now, in full, without asking what happened or which record type to
+use. The user is not required to describe the work, name a scope, or write JSON.
+
+1. Confirm the repository is initialized with `ctx doctor`. If it is not, run `ctx init --instructions`
+   and say so rather than appending.
+2. Choose the record type yourself from what actually happened this session:
+   - **observation** — default; a coherent unit of work reached a durable outcome;
+   - **handoff** — work is unfinished or non-obvious and another session must continue it;
+   - **reflection** — the user asked to consolidate, or `ctx stats` shows a large unreflected tail.
+3. Reconstruct the session from the actual conversation and work, following the field guidance in
+   **After meaningful work** below.
+4. Append it with the matching command, then report the record type, scope, and returned entry id in
+   one line.
+
+If the invocation carries an instruction, follow that instruction instead. A bare word narrows scope
+(treat it as `scope`); an explicit record type forces that type.
+
+If the session produced no durable project knowledge, do not manufacture a record — run `ctx skip`
+as described in **Optional stop-hook response** and say that you skipped and why.
 
 ## Before relevant work
 
@@ -47,6 +70,7 @@ The observation should preserve, when applicable:
 - attempts that worked, failed, were partial, inconclusive, or abandoned;
 - learnings with epistemic type and confidence;
 - changed commits/files/artifacts;
+- explicit `related_paths` when the durable result affects paths that are not currently dirty;
 - verification and exact outcomes;
 - current working state, blockers, open questions, and next steps;
 - superseded/resolved/related context entries.
@@ -102,6 +126,8 @@ cat reflection.json | ctx reflect --agent <host-name> --input -
 
 The reflection should preserve durable architecture, decisions, constraints, known failed approaches, successful approaches, completed work, and open work. The CLI can fill missing coverage boundaries from the log.
 
+Automatic coverage is scope-aware and requires at least one unreflected observation or handoff in that scope. Use `--allow-empty-coverage` only when deliberately recording an initial durable baseline.
+
 See `references/protocol.md` for reflection coverage semantics.
 
 ## Retrieval commands
@@ -118,6 +144,7 @@ ctx decisions --scope auth
 ctx attempts --scope auth --outcome failed
 ctx open --scope auth
 ctx blockers
+ctx due --json
 ctx validate
 ctx stats
 ctx doctor
@@ -155,7 +182,7 @@ python3 scripts/install.py status --hosts auto --scope project --project-root "$
 
 After installation, report: repository root, selected scope, detected/configured hosts, files created or modified, backups created, activation/trust steps still required, and whether `.agent/project-context.json` is initialized. Existing host configuration must be preserved; malformed configuration must be refused rather than overwritten.
 
-The universal adapter model is documented in `references/hooks.md` and `ARCHITECTURE.md`.
+The capability-driven adapter model is documented in `references/hooks.md` and `ARCHITECTURE.md`.
 
 ## Optional stop-hook response
 

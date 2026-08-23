@@ -1,6 +1,6 @@
 # Host compatibility sources
 
-Compatibility was re-verified against first-party documentation on 2026-08-17. This file records the design inputs; `adapters/HOSTS.json` is the machine-readable capability manifest.
+Compatibility was re-verified against first-party documentation on 2026-08-22. This file records the design inputs; `adapters/HOSTS.json` is the machine-readable source of truth for paths, invocation syntax, lifecycle capabilities, trust, activation, and evidence.
 
 ## Claude Code
 
@@ -30,8 +30,9 @@ Adapter: native command hooks under `.grok/hooks/` or `~/.grok/hooks/`; Grok als
 - Agent Skills: https://opencode.ai/docs/skills/
 - Rules / AGENTS.md: https://opencode.ai/docs/rules/
 - Plugins: https://opencode.ai/docs/plugins/
+- Commands: https://opencode.ai/docs/commands/
 
-Adapter: generated local JS plugin; session events are used for lifecycle auditing and `experimental.session.compacting` injects project memory into compaction. `AGENTS.md` remains the reliable bootstrap path for initial task context.
+Adapter: generated local JS plugin; session events are used for lifecycle auditing and `experimental.session.compacting` injects project memory into compaction. `AGENTS.md` remains the reliable bootstrap path for initial task context. The installer adds an OpenCode `/project-context` command shim that instructs the agent to load the canonical skill.
 
 ## Cursor CLI
 

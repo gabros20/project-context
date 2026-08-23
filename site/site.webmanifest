@@ -1,0 +1,12 @@
+{
+  "name": "project-context",
+  "short_name": "project-context",
+  "description": "Portable, append-only project memory for coding agents.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F9FC",
+  "theme_color": "#F7F9FC",
+  "icons": [
+    {"src": "/assets/favicon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}

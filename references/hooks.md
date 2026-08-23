@@ -14,22 +14,28 @@ stop            → optional missing-checkpoint audit/gate
 session-end     → close transient session state
 ```
 
-`hooks.stop_check` is false by default. When enabled, a blocking host is asked to continue only when repository state changed after the turn baseline and no observation/handoff/reflection or explicit `ctx skip` covers the current fingerprint.
+`checkpoint.stop_gate` controls missing-checkpoint behavior:
+
+- `off` (default): no Stop gate; explicit skill invocation drives checkpointing;
+- `changed-work`: request a checkpoint when Git state changed after the turn baseline;
+- `every-turn`: request an append or explicit skip after every completed turn, including reasoning-only work.
+
+Legacy `hooks.stop_check: true` is read as `changed-work`. All adapters delegate the decision to `ctx due`/the normalized Stop handler.
 
 ## Host adapter matrix
 
-| Host | Skill discovery used by installer | Project instructions | Lifecycle integration | Startup injection | Stop gate |
-|---|---|---|---|---|---|
-| Claude Code | `.claude/skills` / user `.claude/skills` | `CLAUDE.md` imports `AGENTS.md` | command hooks in settings JSON | yes | yes |
-| Codex | `.agents/skills` | `AGENTS.md` | command hooks in `.codex/hooks.json` | yes | yes |
-| Grok Build | `.grok/skills` plus `.agents/skills` compatibility | `AGENTS.md` | command hooks under `.grok/hooks/` | host-dependent; AGENTS fallback always exists | audit only in core |
-| OpenCode | `.opencode/skills`, also `.agents/skills` | `AGENTS.md` | generated JS plugin | compaction injection + AGENTS fallback | audit only |
-| Cursor CLI | `.cursor/skills` | `AGENTS.md` / `CLAUDE.md` | `.cursor/hooks.json` | yes | yes (`followup_message`) |
-| Factory Droid | `.factory/skills`, compatible Agent Skills paths | `AGENTS.md` | `.factory/hooks.json` | yes | yes |
-| Pi / pi-mono | `.pi/skills` plus compatible Agent Skills paths | `AGENTS.md` / `CLAUDE.md` | generated TypeScript extension | yes, via `before_agent_start` | audit only |
-| Antigravity | `.agents/skills`, global Gemini skills dir | `AGENTS.md` / `GEMINI.md` | `.agents/hooks.json` / user hooks | yes, via `PreInvocation.injectSteps` | yes |
-| Hermes Agent | user `~/.hermes/skills` | `AGENTS.md` | generated Hermes plugin | yes, via `pre_llm_call` | yes, via `pre_verify` when applicable |
-| OpenClaw | `.agents/skills` / workspace skills | workspace `AGENTS.md` | generated internal hook pack | yes, via `agent:bootstrap` bootstrap file | audit/boundary only |
+| Host | Explicit invocation | Lifecycle integration | Startup injection | Stop behavior |
+|---|---|---|---|---|
+| Claude Code | `/project-context` | command hooks | `SessionStart` | block |
+| Codex | `$project-context` or `/skills` | command hooks | `SessionStart` | block |
+| Grok Build | `/project-context` | compatibility hooks | compatibility-dependent | observe |
+| OpenCode | `/project-context` installer shim | generated JS plugin | AGENTS instructions; compaction injection | observe |
+| Cursor | `/project-context` | native hooks JSON | `sessionStart` | follow-up message |
+| Factory Droid | `/project-context` | native hooks JSON | `SessionStart` | block |
+| Pi / pi-mono | `/skill:project-context` | TypeScript extension | first `before_agent_start` | observe at `agent_settled` |
+| Antigravity | ask to use the skill | native hooks JSON | first `PreInvocation` | continue |
+| Hermes Agent | `/project-context` | Python plugin | first `pre_llm_call` | `pre_verify` when applicable |
+| OpenClaw | `/project-context` | internal hook pack | bootstrap file | unavailable |
 
 The table describes the adapter strategy, not a claim that all hosts expose identical lifecycle semantics. `ctx doctor` and `install.py status` should be used to inspect the actual installation.
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-labelledby="title">
+  <title id="title">project-context mark</title>
+  <rect width="40" height="40" rx="8" fill="#F7F9FC"/>
+  <path d="M15 8H8v24h7M25 8h7v24h-7" fill="none" stroke="#151821" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M20 10v20" fill="none" stroke="#325BFF" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="20" cy="14" r="2" fill="#325BFF"/>
+  <circle cx="20" cy="20" r="2" fill="#325BFF"/>
+  <circle cx="20" cy="26" r="2" fill="#F05A35"/>
+</svg>

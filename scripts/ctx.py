@@ -22,13 +22,18 @@ import uuid
 from typing import Any, Iterable
 
 PROTOCOL_VERSION = 1
-PACKAGE_VERSION = "0.3.0"
+PACKAGE_VERSION = "0.4.0"
 RECORD_TYPES = {"observation", "reflection", "handoff"}
 IMPORTANCE = {"low", "medium", "high", "critical"}
 ATTEMPT_OUTCOMES = {"worked", "failed", "partial", "inconclusive", "abandoned"}
 LEARNING_TYPES = {"fact", "invariant", "constraint", "convention", "gotcha", "hypothesis", "open_question"}
 CONFIDENCE = {"confirmed", "likely", "tentative"}
 VERIFY_OUTCOMES = {"passed", "failed", "partial", "not_run", "inconclusive"}
+FILE_OPERATIONS = {"added", "modified", "deleted", "renamed", "copied", "untracked", "unknown"}
+CHANGE_CAPTURE = {"agent-authored", "git-snapshot"}
+CHECKPOINT_GATES = {"off", "changed-work", "every-turn"}
+STORAGE_MODES = {"repo", "git-common", "external"}
+TRACKING_POLICIES = {"unmanaged", "ignored", "versioned"}
 IMPORTANCE_WEIGHT = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -43,7 +48,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "retrieval": {"latest": 10, "token_budget": 3000},
     "reflection": {"suggest_after_observations": 20},
-    "hooks": {"stop_check": False},
+    "checkpoint": {"stop_gate": "off"},
+    "storage": {"mode": "repo", "tracking": "unmanaged"},
     "scopes": [],
 }
 
@@ -127,14 +133,54 @@ def load_config(root: pathlib.Path, require_enabled: bool = True) -> dict[str, A
         except (OSError, json.JSONDecodeError) as exc:
             raise ContextError(f"cannot read {path}: {exc}") from exc
     cfg = deep_merge(DEFAULT_CONFIG, override)
+    legacy_stop = bool((override.get("hooks") or {}).get("stop_check")) if isinstance(override.get("hooks"), dict) else False
+    checkpoint_override = override.get("checkpoint") if isinstance(override.get("checkpoint"), dict) else {}
+    if legacy_stop and "stop_gate" not in checkpoint_override:
+        cfg["checkpoint"]["stop_gate"] = "changed-work"
+    validate_config(root, cfg)
     if require_enabled and not cfg.get("enabled", True):
         return None
     return cfg
 
 
 def log_path(root: pathlib.Path, cfg: dict[str, Any]) -> pathlib.Path:
-    raw = pathlib.Path(str(cfg.get("log", DEFAULT_CONFIG["log"])))
-    return raw if raw.is_absolute() else root / raw
+    storage = cfg.get("storage") if isinstance(cfg.get("storage"), dict) else {}
+    mode = str(storage.get("mode", "repo"))
+    raw = pathlib.Path(str(storage.get("path") or cfg.get("log", DEFAULT_CONFIG["log"]))).expanduser()
+    if mode == "external":
+        return raw.resolve()
+    if mode == "git-common":
+        common = run_git(root, "rev-parse", "--git-common-dir", check=True)
+        common_path = pathlib.Path(common)
+        if not common_path.is_absolute():
+            common_path = (root / common_path).resolve()
+        relative = raw if not raw.is_absolute() else pathlib.Path(raw.name)
+        if str(relative) == str(DEFAULT_CONFIG["log"]):
+            relative = pathlib.Path("project-context/PROJECT_CONTEXT.jsonl")
+        return (common_path / relative).resolve()
+    return raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+
+
+def validate_config(root: pathlib.Path, cfg: dict[str, Any]) -> None:
+    storage = cfg.get("storage")
+    if not isinstance(storage, dict):
+        raise ContextError("storage configuration must be an object")
+    mode = storage.get("mode", "repo")
+    if mode not in STORAGE_MODES:
+        raise ContextError(f"storage.mode must be one of {sorted(STORAGE_MODES)}")
+    tracking = storage.get("tracking", "unmanaged")
+    if tracking not in TRACKING_POLICIES:
+        raise ContextError(f"storage.tracking must be one of {sorted(TRACKING_POLICIES)}")
+    raw = pathlib.Path(str(storage.get("path") or cfg.get("log", DEFAULT_CONFIG["log"]))).expanduser()
+    if mode == "external" and not raw.is_absolute():
+        raise ContextError("storage.mode external requires an absolute storage.path or log path")
+    if mode == "repo":
+        resolved = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+        if not resolved.is_relative_to(root.resolve()):
+            raise ContextError("repo storage path must stay inside the repository")
+    checkpoint = cfg.get("checkpoint")
+    if not isinstance(checkpoint, dict) or checkpoint.get("stop_gate", "off") not in CHECKPOINT_GATES:
+        raise ContextError(f"checkpoint.stop_gate must be one of {sorted(CHECKPOINT_GATES)}")
 
 
 def cache_root() -> pathlib.Path:
@@ -217,22 +263,37 @@ def git_status_raw(root: pathlib.Path) -> str:
     return proc.stdout if proc.returncode == 0 else ""
 
 
-def coordination_path(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    return normalized in {
+def coordination_paths(root: pathlib.Path | None = None) -> set[str]:
+    paths = {
         ".agent/PROJECT_CONTEXT.jsonl",
         ".agent/PROJECT_CONTEXT.schema.json",
         ".agent/project-context.json",
     }
+    if root is None:
+        return paths
+    try:
+        cfg = load_config(root, require_enabled=False)
+    except ContextError:
+        cfg = None
+    if not cfg:
+        return paths
+    candidates = [log_path(root, cfg)]
+    schema_raw = pathlib.Path(str(cfg.get("schema_copy", ".agent/PROJECT_CONTEXT.schema.json"))).expanduser()
+    candidates.append(schema_raw.resolve() if schema_raw.is_absolute() else (root / schema_raw).resolve())
+    for candidate in candidates:
+        if candidate.is_relative_to(root.resolve()):
+            paths.add(candidate.relative_to(root.resolve()).as_posix())
+    return paths
 
 
 def filtered_git_status(root: pathlib.Path) -> str:
     kept = []
+    ignored = coordination_paths(root)
     for line in git_status_raw(root).splitlines():
         path = line[3:] if len(line) >= 4 else ""
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        if coordination_path(path):
+        if path.replace("\\", "/") in ignored:
             continue
         kept.append(line)
     return "\n".join(kept)
@@ -249,6 +310,7 @@ def detect_changed_files(root: pathlib.Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if not raw:
         return out
+    ignored = coordination_paths(root)
     for line in raw.splitlines():
         if len(line) < 4:
             continue
@@ -256,7 +318,7 @@ def detect_changed_files(root: pathlib.Path) -> list[dict[str, Any]]:
         path = line[3:]
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        if coordination_path(path):
+        if path.replace("\\", "/") in ignored:
             continue
         if status == "??":
             operation = "untracked"
@@ -300,7 +362,11 @@ def load_entries(root: pathlib.Path, cfg: dict[str, Any], strict: bool = True) -
     return entries
 
 
-def validate_semantic(payload: dict[str, Any], record_type_override: str | None = None) -> list[str]:
+def validate_semantic(
+    payload: dict[str, Any],
+    record_type_override: str | None = None,
+    strict_paths: bool = True,
+) -> list[str]:
     errors: list[str] = []
     record_type = record_type_override or payload.get("record_type")
     if record_type not in RECORD_TYPES:
@@ -316,23 +382,103 @@ def validate_semantic(payload: dict[str, Any], record_type_override: str | None 
     context = payload.get("context")
     if not isinstance(context, str) or not context.strip():
         errors.append("context is required and must be non-empty")
-    for attempt in payload.get("attempts", []) or []:
+    decisions = payload.get("decisions", []) or []
+    if not isinstance(decisions, list):
+        errors.append("decisions must be an array")
+        decisions = []
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            errors.append("decisions entries must be objects")
+            continue
+        if not isinstance(decision.get("decision"), str) or not decision.get("decision", "").strip():
+            errors.append("decision requires a non-empty decision")
+        if not isinstance(decision.get("rationale"), str) or not decision.get("rationale", "").strip():
+            errors.append("decision requires a non-empty rationale")
+        alternatives = decision.get("alternatives", []) or []
+        if not isinstance(alternatives, list):
+            errors.append("decision alternatives must be an array")
+            alternatives = []
+        for alternative in alternatives:
+            if not isinstance(alternative, dict) or not isinstance(alternative.get("option"), str) or not alternative.get("option", "").strip():
+                errors.append("decision alternative requires a non-empty option")
+            if not isinstance(alternative, dict) or not isinstance(alternative.get("outcome"), str) or not alternative.get("outcome", "").strip():
+                errors.append("decision alternative requires a non-empty outcome")
+    attempts = payload.get("attempts", []) or []
+    if not isinstance(attempts, list):
+        errors.append("attempts must be an array")
+        attempts = []
+    for attempt in attempts:
         if not isinstance(attempt, dict):
             errors.append("attempts entries must be objects")
             continue
+        if not isinstance(attempt.get("approach"), str) or not attempt.get("approach", "").strip():
+            errors.append("attempt requires a non-empty approach")
         if attempt.get("outcome") not in ATTEMPT_OUTCOMES:
             errors.append(f"attempt outcome must be one of {sorted(ATTEMPT_OUTCOMES)}")
-    for learning in payload.get("learnings", []) or []:
+    learnings = payload.get("learnings", []) or []
+    if not isinstance(learnings, list):
+        errors.append("learnings must be an array")
+        learnings = []
+    for learning in learnings:
         if not isinstance(learning, dict):
             errors.append("learnings entries must be objects")
             continue
+        if not isinstance(learning.get("statement"), str) or not learning.get("statement", "").strip():
+            errors.append("learning requires a non-empty statement")
         if learning.get("type") not in LEARNING_TYPES:
             errors.append(f"learning type must be one of {sorted(LEARNING_TYPES)}")
         if learning.get("confidence") not in CONFIDENCE:
             errors.append(f"learning confidence must be one of {sorted(CONFIDENCE)}")
-    for check in payload.get("verification", []) or []:
-        if isinstance(check, dict) and check.get("outcome") not in VERIFY_OUTCOMES:
+    verification = payload.get("verification", []) or []
+    if not isinstance(verification, list):
+        errors.append("verification must be an array")
+        verification = []
+    for check in verification:
+        if not isinstance(check, dict):
+            errors.append("verification entries must be objects")
+            continue
+        if not isinstance(check.get("check"), str) or not check.get("check", "").strip():
+            errors.append("verification requires a non-empty check")
+        if check.get("outcome") not in VERIFY_OUTCOMES:
             errors.append(f"verification outcome must be one of {sorted(VERIFY_OUTCOMES)}")
+    changes = payload.get("changes")
+    if changes is not None:
+        if not isinstance(changes, dict):
+            errors.append("changes must be an object")
+        else:
+            capture = changes.get("capture")
+            if capture is not None and capture not in CHANGE_CAPTURE:
+                errors.append(f"changes.capture must be one of {sorted(CHANGE_CAPTURE)}")
+            files = changes.get("files", []) or []
+            if not isinstance(files, list):
+                errors.append("changes.files must be an array")
+                files = []
+            for file in files:
+                if not isinstance(file, dict):
+                    errors.append("changes.files entries must be objects")
+                    continue
+                file_path = file.get("path")
+                if not isinstance(file_path, str) or not file_path.strip() or (strict_paths and not valid_related_path(file_path)):
+                    errors.append("changed file requires a normalized repository-relative path")
+                if file.get("operation") not in FILE_OPERATIONS:
+                    errors.append(f"changed file operation must be one of {sorted(FILE_OPERATIONS)}")
+            artifacts = changes.get("artifacts", []) or []
+            if not isinstance(artifacts, list):
+                errors.append("changes.artifacts must be an array")
+                artifacts = []
+            for artifact in artifacts:
+                artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
+                if not isinstance(artifact_path, str) or not artifact_path.strip() or (strict_paths and not valid_related_path(artifact_path)):
+                    errors.append("artifact requires a normalized repository-relative path")
+                if not isinstance(artifact, dict) or not isinstance(artifact.get("type"), str) or not artifact.get("type", "").strip():
+                    errors.append("artifact requires a non-empty type")
+    related_paths = payload.get("related_paths", []) or []
+    if not isinstance(related_paths, list):
+        errors.append("related_paths must be an array")
+    elif not all(isinstance(path, str) and path.strip() for path in related_paths):
+        errors.append("related_paths must contain non-empty strings")
+    elif strict_paths and not all(valid_related_path(path) for path in related_paths):
+        errors.append("related_paths must contain normalized repository-relative paths")
     if record_type == "handoff" and not isinstance(payload.get("current_state"), dict):
         errors.append("handoff requires current_state")
     if record_type == "reflection":
@@ -340,7 +486,22 @@ def validate_semantic(payload: dict[str, Any], record_type_override: str | None 
             errors.append("reflection requires durable_state")
         if payload.get("coverage") is not None and not isinstance(payload.get("coverage"), dict):
             errors.append("reflection coverage must be an object")
+        coverage = payload.get("coverage")
+        if isinstance(coverage, dict):
+            support = coverage.get("supporting_entry_ids", []) or []
+            if not isinstance(support, list) or not all(isinstance(value, str) and value for value in support):
+                errors.append("coverage.supporting_entry_ids must be an array of entry IDs")
+            coverage_scope = coverage.get("scope", []) or []
+            if not isinstance(coverage_scope, list) or not all(isinstance(value, str) and value.strip() for value in coverage_scope):
+                errors.append("coverage.scope must be an array of non-empty strings")
     return errors
+
+
+def valid_related_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip() or "\\" in value:
+        return False
+    path = pathlib.PurePosixPath(value)
+    return not path.is_absolute() and ".." not in path.parts and value not in {".", "./"}
 
 
 def validate_entry(entry: dict[str, Any]) -> list[str]:
@@ -356,7 +517,7 @@ def validate_entry(entry: dict[str, Any]) -> list[str]:
             parse_timestamp(str(entry["timestamp"]))
     except ContextError as exc:
         errors.append(str(exc))
-    errors.extend(validate_semantic(entry))
+    errors.extend(validate_semantic(entry, strict_paths=False))
     agent = entry.get("agent")
     if not isinstance(agent, dict) or not agent.get("name") or not agent.get("session_id"):
         errors.append("agent requires name and session_id")
@@ -367,6 +528,8 @@ def validate_entry(entry: dict[str, Any]) -> list[str]:
         for key in ["name", "branch", "worktree", "head_commit", "dirty"]:
             if key not in repo:
                 errors.append(f"repository missing {key}")
+        if "dirty" in repo and not isinstance(repo.get("dirty"), bool):
+            errors.append("repository.dirty must be boolean")
     if entry.get("record_type") == "reflection" and not isinstance(entry.get("coverage"), dict):
         errors.append("reflection requires coverage")
     return errors
@@ -414,14 +577,15 @@ def file_lock(log: pathlib.Path):
         fh.close()
 
 
-def append_entry(root: pathlib.Path, cfg: dict[str, Any], entry: dict[str, Any]) -> None:
+def append_entry(root: pathlib.Path, cfg: dict[str, Any], entry: dict[str, Any], already_locked: bool = False) -> None:
     errors = validate_entry(entry)
     if errors:
         raise ContextError("invalid entry:\n- " + "\n- ".join(errors))
     path = log_path(root, cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
-    with file_lock(path):
+    lock = contextlib.nullcontext() if already_locked else file_lock(path)
+    with lock:
         with path.open("a", encoding="utf-8") as fh:
             fh.write(line)
             fh.flush()
@@ -446,6 +610,7 @@ def update_runtime_after_checkpoint(root: pathlib.Path, agent: str, session_id: 
             "last_event_at": utc_now(),
             "last_event_id": entry_id,
             "last_event_fingerprint": git_fingerprint(root),
+            "turn_checkpointed": True,
         }
     )
     write_json_atomic(state_path, state)
@@ -465,31 +630,61 @@ def resolve_session_id(root: pathlib.Path, agent: str, explicit: str | None) -> 
 
 
 def auto_changes(root: pathlib.Path, payload: dict[str, Any]) -> None:
-    detected = detect_changed_files(root)
-    if not detected:
-        return
     changes = payload.setdefault("changes", {})
     if not isinstance(changes, dict):
         return
-    if not changes.get("files"):
+    if changes.get("files"):
+        changes.setdefault("capture", "agent-authored")
+        return
+    detected = detect_changed_files(root)
+    if detected:
         changes["files"] = detected
+        changes.setdefault("capture", "git-snapshot")
 
 
-def reflection_coverage(entries: list[dict[str, Any]], payload: dict[str, Any]) -> None:
+def scope_overlap(left: list[str] | None, right: list[str] | None) -> bool:
+    if not left or not right:
+        return True
+    return bool({value.lower() for value in left}.intersection(value.lower() for value in right))
+
+
+def reflection_coverage(entries: list[dict[str, Any]], payload: dict[str, Any], allow_empty: bool = False) -> None:
     coverage = payload.setdefault("coverage", {})
     if not isinstance(coverage, dict):
         payload["coverage"] = coverage = {}
-    if not entries:
-        coverage.setdefault("supporting_entry_ids", [])
+    reflection_scope = [str(value) for value in payload.get("scope", []) if isinstance(value, str)]
+    explicit_support = coverage.get("supporting_entry_ids")
+    if explicit_support:
+        known = {str(entry.get("entry_id")) for entry in entries}
+        missing = [entry_id for entry_id in explicit_support if entry_id not in known]
+        if missing:
+            raise ContextError("reflection coverage references unknown entries: " + ", ".join(missing))
+        coverage.setdefault("scope", reflection_scope)
         return
     previous_reflection_idx = -1
     for i, entry in enumerate(entries):
-        if entry.get("record_type") == "reflection":
+        if entry.get("record_type") == "reflection" and scope_overlap(reflection_scope, entry.get("scope", [])):
             previous_reflection_idx = i
-    start_idx = previous_reflection_idx + 1
-    coverage.setdefault("from_entry_id", entries[start_idx].get("entry_id") if start_idx < len(entries) else entries[-1].get("entry_id"))
-    coverage.setdefault("through_entry_id", entries[-1].get("entry_id"))
-    coverage.setdefault("supporting_entry_ids", [e.get("entry_id") for e in entries[start_idx:] if e.get("entry_id")][-20:])
+    candidates = [
+        entry
+        for entry in entries[previous_reflection_idx + 1 :]
+        if entry.get("record_type") in {"observation", "handoff"}
+        and scope_overlap(reflection_scope, entry.get("scope", []))
+    ]
+    if not candidates:
+        if not allow_empty:
+            raise ContextError("reflection has no unreflected observations or handoffs in its scope; use --allow-empty-coverage to record an explicit baseline")
+        coverage.setdefault("supporting_entry_ids", [])
+        coverage.setdefault("scope", reflection_scope)
+        return
+    coverage.setdefault("from_entry_id", candidates[0].get("entry_id"))
+    coverage.setdefault("through_entry_id", candidates[-1].get("entry_id"))
+    coverage.setdefault("supporting_entry_ids", [entry["entry_id"] for entry in candidates if entry.get("entry_id")])
+    coverage.setdefault("scope", reflection_scope)
+    if not payload.get("related_paths"):
+        inherited = sorted({path for entry in candidates for path in entry_paths(entry)})
+        if inherited:
+            payload["related_paths"] = inherited
 
 
 def build_entry(
@@ -499,6 +694,8 @@ def build_entry(
     agent: str,
     session_id: str | None,
     record_type_override: str | None = None,
+    entries: list[dict[str, Any]] | None = None,
+    allow_empty_coverage: bool = False,
 ) -> dict[str, Any]:
     payload = json.loads(json.dumps(payload))
     if record_type_override:
@@ -508,7 +705,7 @@ def build_entry(
     if errors:
         raise ContextError("invalid semantic payload:\n- " + "\n- ".join(errors))
     if payload.get("record_type") == "reflection":
-        reflection_coverage(load_entries(root, cfg), payload)
+        reflection_coverage(entries if entries is not None else load_entries(root, cfg), payload, allow_empty_coverage)
     if payload.get("record_type") in {"observation", "handoff"}:
         auto_changes(root, payload)
     sid = resolve_session_id(root, agent, session_id)
@@ -571,11 +768,17 @@ def matches_scope(entry: dict[str, Any], scopes: list[str] | None) -> bool:
     if not scopes:
         return True
     entry_scopes = {str(x).lower() for x in entry.get("scope", []) if isinstance(x, str)}
+    if not entry_scopes or "project" in entry_scopes:
+        return True
     return bool(entry_scopes.intersection({x.lower() for x in scopes}))
 
 
-def entry_paths(entry: dict[str, Any]) -> list[str]:
-    paths: list[str] = []
+def entry_paths(
+    entry: dict[str, Any],
+    entries_by_id: dict[str, dict[str, Any]] | None = None,
+    seen: set[str] | None = None,
+) -> list[str]:
+    paths: list[str] = [str(path) for path in entry.get("related_paths", []) or [] if isinstance(path, str)]
     changes = entry.get("changes", {})
     if isinstance(changes, dict):
         for file in changes.get("files", []) or []:
@@ -584,14 +787,28 @@ def entry_paths(entry: dict[str, Any]) -> list[str]:
         for artifact in changes.get("artifacts", []) or []:
             if isinstance(artifact, dict) and isinstance(artifact.get("path"), str):
                 paths.append(artifact["path"])
-    return paths
+    coverage = entry.get("coverage")
+    if entries_by_id and isinstance(coverage, dict):
+        visited = seen or set()
+        for entry_id in coverage.get("supporting_entry_ids", []) or []:
+            if not isinstance(entry_id, str) or entry_id in visited:
+                continue
+            source = entries_by_id.get(entry_id)
+            if source:
+                visited.add(entry_id)
+                paths.extend(entry_paths(source, entries_by_id, visited))
+    return sorted(set(paths))
 
 
-def matches_path(entry: dict[str, Any], path_query: str | None) -> bool:
+def matches_path(
+    entry: dict[str, Any],
+    path_query: str | None,
+    entries_by_id: dict[str, dict[str, Any]] | None = None,
+) -> bool:
     if not path_query:
         return True
     q = path_query.replace("\\", "/").lower().rstrip("/")
-    for path in entry_paths(entry):
+    for path in entry_paths(entry, entries_by_id):
         p = path.replace("\\", "/").lower()
         if p == q or p.startswith(q + "/") or q.startswith(p.rstrip("/") + "/") or q in p:
             return True
@@ -606,12 +823,16 @@ def filter_entries(
     record_type: str | None = None,
     since: str | None = None,
     minimum_importance: str | None = None,
+    reference_entries: Iterable[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    entries = list(entries)
+    references = list(reference_entries) if reference_entries is not None else entries
+    entries_by_id = {str(entry.get("entry_id")): entry for entry in references if entry.get("entry_id")}
     since_dt = parse_timestamp(since) if since else None
     min_weight = IMPORTANCE_WEIGHT.get(minimum_importance or "low", 0)
     out: list[dict[str, Any]] = []
     for entry in entries:
-        if not matches_scope(entry, scopes) or not matches_path(entry, path_query):
+        if not matches_scope(entry, scopes) or not matches_path(entry, path_query, entries_by_id):
             continue
         if agent and str(entry.get("agent", {}).get("name", "")).lower() != agent.lower():
             continue
@@ -798,11 +1019,23 @@ def select_context_entries(
     relevant = filter_entries(entries, scopes=scopes, path_query=path_query)
     reflection = latest_reflection(relevant, scopes)
     if not reflection:
-        return relevant[-latest_without_reflection:], None
+        high = [entry for entry in relevant if IMPORTANCE_WEIGHT.get(str(entry.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]]
+        handoffs = [entry for entry in relevant if entry.get("record_type") == "handoff"]
+        selected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for entry in [*high, *handoffs, *relevant[-latest_without_reflection:]]:
+            entry_id = str(entry.get("entry_id", id(entry)))
+            if entry_id not in seen:
+                selected.append(entry)
+                seen.add(entry_id)
+        selected.sort(key=entry_timestamp)
+        return selected, None
 
     idx = coverage_index(entries, reflection)
     tail = entries[idx + 1 :] if idx >= 0 else entries
-    tail = filter_entries(tail, scopes=scopes, path_query=path_query)
+    tail = filter_entries(tail, scopes=scopes, path_query=path_query, reference_entries=entries)
+    reflection_id = reflection.get("entry_id")
+    tail = [entry for entry in tail if entry.get("entry_id") != reflection_id]
 
     high = [e for e in tail if IMPORTANCE_WEIGHT.get(str(e.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]]
     handoffs = [e for e in tail if e.get("record_type") == "handoff"]
@@ -818,6 +1051,78 @@ def select_context_entries(
     return selected, reflection
 
 
+def prioritized_frontier(entries: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
+    ordered: list[tuple[dict[str, Any], str]] = []
+    handoffs = [entry for entry in entries if entry.get("record_type") == "handoff"]
+    if handoffs:
+        ordered.append((handoffs[-1], "latest-handoff"))
+    if entries:
+        ordered.append((entries[-1], "newest-frontier"))
+    for entry in reversed(entries):
+        if IMPORTANCE_WEIGHT.get(str(entry.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]:
+            ordered.append((entry, "high-importance"))
+    for entry in reversed(entries):
+        ordered.append((entry, "recent-frontier"))
+    result: list[tuple[dict[str, Any], str]] = []
+    seen: set[str] = set()
+    for entry, reason in ordered:
+        entry_id = str(entry.get("entry_id", id(entry)))
+        if entry_id not in seen:
+            result.append((entry, reason))
+            seen.add(entry_id)
+    return result
+
+
+def pack_context_packet(
+    header: str,
+    reflection: dict[str, Any] | None,
+    frontier: list[dict[str, Any]],
+    token_budget: int,
+    help_text: str | None,
+    explain: bool,
+) -> str:
+    maximum = approx_char_budget(token_budget)
+    blocks = [header]
+    used = len(header)
+    selected: list[tuple[dict[str, Any], str, str]] = []
+    omitted = 0
+    if reflection:
+        raw = "DURABLE REFLECTION\n" + format_entry(reflection, full=False)
+        cap = max(400, int(maximum * 0.40))
+        block = trim_text(raw, min(cap, max(200, maximum - used)))
+        blocks.append(block)
+        used += len(block) + 2
+    reserve = len(help_text or "") + (2 if help_text else 0)
+    for entry, reason in prioritized_frontier(frontier):
+        raw = format_entry(entry, full=False)
+        remaining = maximum - used - reserve - 32
+        if remaining <= 200:
+            omitted += 1
+            continue
+        # Preserve the latest handoff/newest record even when individually verbose.
+        if len(raw) > remaining:
+            if reason in {"latest-handoff", "newest-frontier"}:
+                raw = trim_text(raw, min(remaining, max(300, int(maximum * 0.30))))
+            else:
+                omitted += 1
+                continue
+        selected.append((entry, reason, raw))
+        used += len(raw) + 2
+    if selected:
+        selected.sort(key=lambda item: entry_timestamp(item[0]))
+        blocks.append("RECENT / UNREFLECTED FRONTIER\n" + "\n\n".join(rendered for _, _, rendered in selected))
+    if explain:
+        lines = ["SELECTION EXPLANATION"]
+        if reflection:
+            lines.append(f"- {reflection.get('entry_id')}: relevant-reflection")
+        lines.extend(f"- {entry.get('entry_id')}: {reason}" for entry, reason, _ in selected)
+        lines.append(f"- omitted_by_budget: {omitted}")
+        blocks.append("\n".join(lines))
+    if help_text:
+        blocks.append(help_text)
+    return trim_text("\n\n".join(blocks), maximum)
+
+
 def context_packet(
     root: pathlib.Path,
     cfg: dict[str, Any],
@@ -825,6 +1130,7 @@ def context_packet(
     path_query: str | None = None,
     token_budget: int | None = None,
     compact: bool = False,
+    explain: bool = False,
 ) -> str:
     entries = load_entries(root, cfg)
     if not entries:
@@ -845,17 +1151,13 @@ def context_packet(
         f"repository: {root.name}",
         f"entries: {len(entries)}",
     ]
-    blocks = ["\n".join(header)]
-    if reflection:
-        blocks.append("DURABLE REFLECTION\n" + format_entry(reflection, full=False))
-    if selected:
-        blocks.append("RECENT / UNREFLECTED FRONTIER\n" + "\n\n".join(format_entry(e, full=False) for e in selected))
+    help_text = None
     if not compact:
-        blocks.append(
+        help_text = (
             "USE TARGETED RETRIEVAL IF NEEDED\n"
             "ctx context --scope <scope> | ctx context --path <path> | ctx attempts --outcome failed | ctx decisions | ctx open"
         )
-    return blocks_with_budget(blocks, token_budget)
+    return pack_context_packet("\n".join(header), reflection, selected, token_budget, help_text, explain)
 
 
 def emit_entries(entries: list[dict[str, Any]], fmt: str, full: bool, token_budget: int | None = None) -> None:
@@ -1024,6 +1326,7 @@ def hook_turn_start(host: str, data: dict[str, Any]) -> int:
             "turn_started_at": now,
             "turn_baseline_fingerprint": git_fingerprint(root),
             "turn_id": turn_id,
+            "turn_checkpointed": False,
             "last_seen_at": now,
         }
     )
@@ -1039,23 +1342,41 @@ def hook_turn_start(host: str, data: dict[str, Any]) -> int:
     return 0
 
 
+def checkpoint_due(root: pathlib.Path, cfg: dict[str, Any], host: str, data: dict[str, Any]) -> tuple[bool, str]:
+    gate = str((cfg.get("checkpoint") or {}).get("stop_gate", "off"))
+    if gate == "off":
+        return False, "checkpoint stop gate is off"
+    session_id = hook_session_id(host, data)
+    state = read_json(session_state_path(root, session_id), {}) or {}
+    if state.get("turn_checkpointed"):
+        return False, "current turn was checkpointed or explicitly skipped"
+    if gate == "every-turn":
+        return True, "every completed turn requires an observation, handoff, reflection, or explicit skip"
+    baseline = state.get("turn_baseline_fingerprint") or state.get("session_baseline_fingerprint")
+    current = git_fingerprint(root)
+    if not baseline:
+        return False, "no session or turn baseline is available"
+    if current == baseline:
+        return False, "Git state is unchanged"
+    if state.get("last_event_fingerprint") == current:
+        return False, "current Git state was already checkpointed"
+    if state.get("skip_fingerprint") == current:
+        return False, "current Git state was explicitly skipped"
+    return True, "Git state changed after the last checkpoint"
+
+
 def stop_reason(host: str, data: dict[str, Any]) -> str | None:
     root, cfg = enabled_repo_from_hook(data)
     if not root or not cfg:
         return None
-    if not bool(cfg.get("hooks", {}).get("stop_check", False)):
-        return None
     if data.get("stop_hook_active") or data.get("stopHookActive"):
         return None
-    session_id = hook_session_id(host, data)
-    state = read_json(session_state_path(root, session_id), {}) or {}
-    baseline = state.get("turn_baseline_fingerprint") or state.get("session_baseline_fingerprint")
-    current = git_fingerprint(root)
-    if not baseline or current == baseline:
+    if str(data.get("status", "")).lower() in {"aborted", "error"}:
         return None
-    if state.get("last_event_fingerprint") == current:
+    if data.get("fullyIdle") is False:
         return None
-    if state.get("skip_fingerprint") == current:
+    due, _ = checkpoint_due(root, cfg, host, data)
+    if not due:
         return None
     return (
         "Repository state changed during this turn after the last project-context checkpoint. "
@@ -1153,7 +1474,16 @@ def cmd_init(args: argparse.Namespace) -> int:
         existing = read_json(cfg_path, {}) or {}
         cfg = deep_merge(DEFAULT_CONFIG, existing)
     if args.stop_check:
-        cfg["hooks"]["stop_check"] = True
+        cfg["checkpoint"]["stop_gate"] = "changed-work"
+    if args.checkpoint_gate:
+        cfg["checkpoint"]["stop_gate"] = args.checkpoint_gate
+    if args.storage:
+        cfg["storage"]["mode"] = args.storage
+    if args.storage_path:
+        cfg["storage"]["path"] = args.storage_path
+    if args.tracking:
+        cfg["storage"]["tracking"] = args.tracking
+    validate_config(root, cfg)
     write_json_atomic(cfg_path, cfg)
     lp = log_path(root, cfg)
     lp.parent.mkdir(parents=True, exist_ok=True)
@@ -1162,14 +1492,18 @@ def cmd_init(args: argparse.Namespace) -> int:
     schema_dst_raw = pathlib.Path(str(cfg.get("schema_copy", ".agent/PROJECT_CONTEXT.schema.json")))
     schema_dst = schema_dst_raw if schema_dst_raw.is_absolute() else root / schema_dst_raw
     if schema_src.exists():
+        schema_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(schema_src, schema_dst)
     if args.instructions:
         install_repo_instructions(root)
+    if cfg.get("storage", {}).get("tracking") == "ignored" and cfg.get("storage", {}).get("mode") == "repo":
+        raw_log = pathlib.Path(str(cfg.get("storage", {}).get("path") or cfg.get("log", DEFAULT_CONFIG["log"])))
+        append_marker_block(root / ".gitignore", "/" + raw_log.as_posix().lstrip("/"), "project-context-storage")
     print(f"initialized project-context in {root}")
     print(f"config: {cfg_path.relative_to(root)}")
     print(f"log: {lp.relative_to(root) if lp.is_relative_to(root) else lp}")
-    if not cfg.get("hooks", {}).get("stop_check"):
-        print("stop hook enforcement: disabled (enable in .agent/project-context.json when desired)")
+    print(f"storage: {cfg.get('storage', {}).get('mode', 'repo')} / {cfg.get('storage', {}).get('tracking', 'unmanaged')}")
+    print(f"checkpoint stop gate: {cfg.get('checkpoint', {}).get('stop_gate', 'off')}")
     return 0
 
 
@@ -1219,7 +1553,7 @@ def cmd_startup(args: argparse.Namespace) -> int:
 def cmd_context(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
     budget = args.budget or int(cfg.get("retrieval", {}).get("token_budget", 3000))
-    print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=budget, compact=False))
+    print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=budget, compact=False, explain=args.explain))
     return 0
 
 
@@ -1355,8 +1689,21 @@ def cmd_append(args: argparse.Namespace, override: str | None = None) -> int:
     root, cfg = repo_and_config(args)
     payload = read_payload(args, override)
     agent = args.agent or os.environ.get("PROJECT_CONTEXT_AGENT") or "unknown"
-    entry = build_entry(root, cfg, payload, agent, args.session_id, override)
-    append_entry(root, cfg, entry)
+    path = log_path(root, cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path):
+        entries = load_entries(root, cfg)
+        entry = build_entry(
+            root,
+            cfg,
+            payload,
+            agent,
+            args.session_id,
+            override,
+            entries=entries,
+            allow_empty_coverage=bool(getattr(args, "allow_empty_coverage", False)),
+        )
+        append_entry(root, cfg, entry, already_locked=True)
     update_runtime_after_checkpoint(root, agent, entry["agent"]["session_id"], entry["entry_id"])
     print(json.dumps({"entry_id": entry["entry_id"], "timestamp": entry["timestamp"], "record_type": entry["record_type"]}))
     return 0
@@ -1375,11 +1722,25 @@ def cmd_skip(args: argparse.Namespace) -> int:
             "skip_at": utc_now(),
             "skip_reason": args.reason,
             "skip_fingerprint": git_fingerprint(root),
+            "turn_checkpointed": True,
         }
     )
     write_json_atomic(state_path, state)
     print(f"acknowledged non-durable turn for session {sid}: {args.reason}")
     return 0
+
+
+def cmd_due(args: argparse.Namespace) -> int:
+    root, cfg = repo_and_config(args)
+    agent = args.agent or os.environ.get("PROJECT_CONTEXT_AGENT") or "unknown"
+    data = {"cwd": str(root), "session_id": args.session_id or resolve_session_id(root, agent, None)}
+    due, reason = checkpoint_due(root, cfg, agent, data)
+    result = {"due": due, "reason": reason, "stop_gate": cfg.get("checkpoint", {}).get("stop_gate", "off")}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+    else:
+        print(("due" if due else "not due") + ": " + reason)
+    return 1 if due else 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -1390,6 +1751,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 0
     errors: list[str] = []
     count = 0
+    records: list[tuple[int, dict[str, Any]]] = []
     with path.open("r", encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):
             if not line.strip():
@@ -1403,8 +1765,26 @@ def cmd_validate(args: argparse.Namespace) -> int:
             if not isinstance(entry, dict):
                 errors.append(f"line {lineno}: record is not an object")
                 continue
+            records.append((lineno, entry))
             for error in validate_entry(entry):
                 errors.append(f"line {lineno}: {error}")
+    identifiers: dict[str, int] = {}
+    for lineno, entry in records:
+        entry_id = entry.get("entry_id")
+        if isinstance(entry_id, str):
+            if entry_id in identifiers:
+                errors.append(f"line {lineno}: duplicate entry_id also used on line {identifiers[entry_id]}")
+            else:
+                identifiers[entry_id] = lineno
+    for lineno, entry in records:
+        coverage = entry.get("coverage")
+        if not isinstance(coverage, dict):
+            continue
+        references = [coverage.get("from_entry_id"), coverage.get("through_entry_id")]
+        references.extend(coverage.get("supporting_entry_ids", []) or [])
+        for reference in references:
+            if isinstance(reference, str) and reference not in identifiers:
+                errors.append(f"line {lineno}: coverage references unknown entry_id {reference}")
     if errors:
         for error in errors:
             eprint(error)
@@ -1444,20 +1824,32 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"project-context {PACKAGE_VERSION} / protocol {PROTOCOL_VERSION}")
     print(f"python: {sys.version.split()[0]}")
     print(f"skill root: {skill_root()}")
-    host_skill_paths = {
-        "codex": pathlib.Path.home() / ".agents/skills/project-context",
-        "claude": pathlib.Path.home() / ".claude/skills/project-context",
-        "grok": pathlib.Path.home() / ".grok/skills/project-context",
-        "opencode": pathlib.Path.home() / ".config/opencode/skills/project-context",
-        "cursor": pathlib.Path.home() / ".cursor/skills/project-context",
-        "droid": pathlib.Path.home() / ".factory/skills/project-context",
-        "pi": pathlib.Path.home() / ".pi/agent/skills/project-context",
-        "antigravity": pathlib.Path.home() / ".gemini/config/skills/project-context",
-        "hermes": pathlib.Path.home() / ".hermes/skills/project-context",
-        "openclaw": pathlib.Path.home() / ".openclaw/skills/project-context",
-    }
-    for host, path in host_skill_paths.items():
-        print(f"{host} skill: {path} ({'present' if path.exists() else 'missing'})")
+    manifest = read_json(skill_root() / "adapters" / "HOSTS.json", {}) or {}
+    for host, details in (manifest.get("hosts") or {}).items():
+        skills = details.get("skills", {}) if isinstance(details, dict) else {}
+        user_raw = skills.get("user")
+        project_raw = skills.get("project")
+        user_path = pathlib.Path(str(user_raw)).expanduser() if user_raw else None
+        project_path = root / str(project_raw) if root and project_raw else None
+        present = bool((user_path and user_path.exists()) or (project_path and project_path.exists()))
+        lifecycle = details.get("lifecycle", {})
+        lifecycle_raw = lifecycle.get("project" if root else "user")
+        lifecycle_path = None
+        if lifecycle_raw:
+            lifecycle_path = pathlib.Path(str(lifecycle_raw)).expanduser()
+            if root and not lifecycle_path.is_absolute():
+                lifecycle_path = root / lifecycle_path
+        flags = []
+        if root and lifecycle.get("trust_required_project"):
+            flags.append("trust-required")
+        if lifecycle.get("activation_required"):
+            flags.append("activation-required")
+        invocation = details.get("invocation", {}).get("primary", "unknown")
+        print(
+            f"{host} skill: {'present' if present else 'missing'}; invoke: {invocation}; "
+            f"lifecycle: {'present' if lifecycle_path and lifecycle_path.exists() else 'missing'}"
+            + (f"; {','.join(flags)}" if flags else "")
+        )
     if not root:
         print("repo: not inside a Git repository")
         return 0
@@ -1470,7 +1862,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     lp = log_path(root, cfg)
     print(f"enabled: {cfg.get('enabled', True)}")
     print(f"log: {lp} ({lp.stat().st_size if lp.exists() else 0} bytes)")
-    print(f"stop_check: {cfg.get('hooks', {}).get('stop_check', False)}")
+    print(f"storage_mode: {cfg.get('storage', {}).get('mode', 'repo')}")
+    print(f"tracking_policy: {cfg.get('storage', {}).get('tracking', 'unmanaged')}")
+    print(f"checkpoint_stop_gate: {cfg.get('checkpoint', {}).get('stop_gate', 'off')}")
+    legacy_reflections = sum(
+        1 for entry in load_entries(root, cfg, strict=False)
+        if entry.get("record_type") == "reflection"
+        and isinstance(entry.get("coverage"), dict)
+        and "scope" not in entry["coverage"]
+    )
+    if legacy_reflections:
+        print(f"warning: {legacy_reflections} legacy reflections have no coverage.scope; they remain readable but should not be treated as global watermarks")
     return cmd_validate(argparse.Namespace(cwd=str(root)))
 
 
@@ -1519,6 +1921,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = subs.add_parser("init", help="initialize project-context in the current Git repository")
     p.add_argument("--instructions", action="store_true", help="add/update AGENTS.md bootstrap and CLAUDE.md import")
     p.add_argument("--stop-check", action="store_true", help="enable Stop hook enforcement in project config")
+    p.add_argument("--checkpoint-gate", choices=sorted(CHECKPOINT_GATES), help="checkpoint requirement enforced by compatible Stop hooks")
+    p.add_argument("--storage", choices=sorted(STORAGE_MODES), help="ledger storage mode")
+    p.add_argument("--storage-path", help="custom ledger path; absolute for external storage")
+    p.add_argument("--tracking", choices=sorted(TRACKING_POLICIES), help="Git tracking policy for repo storage")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_init)
 
@@ -1533,6 +1939,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scope", action="append")
     p.add_argument("--path")
     p.add_argument("--budget", type=int)
+    p.add_argument("--explain", action="store_true", help="show selected entry IDs and selection reasons")
     p.set_defaults(func=cmd_context)
 
     p = subs.add_parser("latest", help="show latest records")
@@ -1589,6 +1996,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subs.add_parser("reflect", help="append a reflection and auto-fill missing coverage boundaries")
     add_append_args(p)
+    p.add_argument("--allow-empty-coverage", action="store_true", help="allow a reflection with no unreflected source records in scope")
     p.set_defaults(func=lambda a: cmd_append(a, "reflection"))
 
     p = subs.add_parser("skip", help="acknowledge changed Git state that has no durable project-context value")
@@ -1596,6 +2004,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session-id")
     p.add_argument("--reason", required=True)
     p.set_defaults(func=cmd_skip)
+
+    p = subs.add_parser("due", help="report whether the current turn needs a checkpoint")
+    p.add_argument("--agent")
+    p.add_argument("--session-id")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_due)
 
     p = subs.add_parser("validate", help="validate all JSONL records")
     p.set_defaults(func=cmd_validate)

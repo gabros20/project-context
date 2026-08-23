@@ -1,75 +1,88 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "protocol_version": 1,
-  "normalized_lifecycle": [
-    "session-start",
-    "turn-start",
-    "pre-invocation",
-    "compact-before",
-    "compact-after",
-    "stop",
-    "session-end"
-  ],
+  "verified_at": "2026-08-22",
+  "normalized_lifecycle": ["session-start", "turn-start", "pre-invocation", "compact-before", "compact-after", "stop", "session-end"],
   "hosts": {
     "claude": {
-      "display_name": "Claude Code",
+      "display_name": "Claude Code", "binaries": ["claude"], "user_marker": ".claude",
       "skills": {"user": "~/.claude/skills/project-context", "project": ".claude/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["AGENTS.md", "CLAUDE.md -> @AGENTS.md"],
-      "lifecycle": {"mechanism": "command-hooks", "project": ".claude/settings.json", "user": "~/.claude/settings.json", "startup_injection": true, "turn_baseline": true, "stop_gate": true}
+      "lifecycle": {"mechanism": "command-hooks", "project": ".claude/settings.json", "user": "~/.claude/settings.json", "startup_injection": "session-start", "turn_baseline": true, "stop_behavior": "block"},
+      "evidence": ["https://code.claude.com/docs/en/skills", "https://code.claude.com/docs/en/hooks"]
     },
     "codex": {
-      "display_name": "Codex",
+      "display_name": "Codex", "binaries": ["codex"], "user_marker": ".codex",
       "skills": {"user": "~/.agents/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "$project-context", "aliases": ["/skills"], "direct": true},
       "instructions": ["AGENTS.md"],
-      "lifecycle": {"mechanism": "command-hooks", "project": ".codex/hooks.json", "user": "~/.codex/hooks.json", "startup_injection": true, "turn_baseline": true, "stop_gate": true, "trust_required_project": true}
+      "lifecycle": {"mechanism": "command-hooks", "project": ".codex/hooks.json", "user": "~/.codex/hooks.json", "startup_injection": "session-start", "turn_baseline": true, "stop_behavior": "block", "trust_required_project": true},
+      "evidence": ["https://developers.openai.com/codex/skills", "https://developers.openai.com/codex/hooks"]
     },
     "grok": {
-      "display_name": "Grok Build",
-      "skills": {"user": "~/.grok/skills/project-context", "project": ".grok/skills/project-context", "compatible_user": "~/.agents/skills/project-context"},
+      "display_name": "Grok Build", "binaries": ["grok"], "user_marker": ".grok",
+      "skills": {"user": "~/.grok/skills/project-context", "project": ".grok/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["AGENTS.md", "Claude Code instruction compatibility"],
-      "lifecycle": {"mechanism": "command-hooks", "project": ".grok/hooks/project-context.json", "user": "~/.grok/hooks/project-context.json", "startup_injection": false, "turn_baseline": true, "stop_gate": false, "trust_required_project": true}
+      "lifecycle": {"mechanism": "command-hooks", "project": ".grok/hooks/project-context.json", "user": "~/.grok/hooks/project-context.json", "startup_injection": "compatibility-dependent", "turn_baseline": true, "stop_behavior": "observe", "trust_required_project": true},
+      "evidence": ["https://docs.x.ai/build/features/skills-plugins-marketplaces"]
     },
     "opencode": {
-      "display_name": "OpenCode",
-      "skills": {"user": "~/.config/opencode/skills/project-context", "project": ".opencode/skills/project-context", "compatible_user": "~/.agents/skills/project-context"},
+      "display_name": "OpenCode", "binaries": ["opencode"], "user_marker": ".config/opencode",
+      "skills": {"user": "~/.agents/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "/project-context", "native_skill": "skill tool", "direct": true, "shim": true},
       "instructions": ["AGENTS.md"],
-      "lifecycle": {"mechanism": "generated-js-plugin", "project": ".opencode/plugins/project-context.js", "user": "~/.config/opencode/plugins/project-context.js", "startup_injection": false, "compaction_injection": true, "turn_baseline": false, "stop_gate": false}
+      "lifecycle": {"mechanism": "generated-js-plugin", "project": ".opencode/plugins/project-context.js", "user": "~/.config/opencode/plugins/project-context.js", "startup_injection": "instructions-only", "compaction_injection": true, "turn_baseline": false, "stop_behavior": "observe"},
+      "evidence": ["https://opencode.ai/docs/skills/", "https://opencode.ai/docs/commands/", "https://opencode.ai/docs/plugins/"]
     },
     "cursor": {
-      "display_name": "Cursor CLI",
-      "skills": {"user": "~/.cursor/skills/project-context", "project": ".cursor/skills/project-context"},
+      "display_name": "Cursor", "binaries": ["agent"], "user_marker": ".cursor",
+      "skills": {"user": "~/.agents/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["AGENTS.md", "CLAUDE.md"],
-      "lifecycle": {"mechanism": "native-hooks-json", "project": ".cursor/hooks.json", "user": "~/.cursor/hooks.json", "startup_injection": true, "turn_baseline": true, "stop_gate": true, "trust_required_project": true}
+      "lifecycle": {"mechanism": "native-hooks-json", "project": ".cursor/hooks.json", "user": "~/.cursor/hooks.json", "startup_injection": "session-start", "turn_baseline": true, "stop_behavior": "followup", "trust_required_project": true},
+      "evidence": ["https://cursor.com/docs/skills", "https://cursor.com/docs/hooks"]
     },
     "droid": {
-      "display_name": "Factory Droid CLI",
-      "skills": {"user": "~/.factory/skills/project-context", "project": ".factory/skills/project-context", "compatible_user": "~/.agents/skills/project-context"},
+      "display_name": "Factory Droid CLI", "binaries": ["droid"], "user_marker": ".factory",
+      "skills": {"user": "~/.factory/skills/project-context", "project": ".factory/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["AGENTS.md"],
-      "lifecycle": {"mechanism": "native-hooks-json", "project": ".factory/hooks.json", "user": "~/.factory/hooks.json", "startup_injection": true, "turn_baseline": true, "stop_gate": true}
+      "lifecycle": {"mechanism": "native-hooks-json", "project": ".factory/hooks.json", "user": "~/.factory/hooks.json", "startup_injection": "session-start", "turn_baseline": true, "stop_behavior": "block"},
+      "evidence": ["https://docs.factory.ai/harness/skills", "https://docs.factory.ai/harness/hooks"]
     },
     "pi": {
-      "display_name": "Pi / pi-mono",
-      "skills": {"user": "~/.pi/agent/skills/project-context", "project": ".pi/skills/project-context", "compatible_user": "~/.agents/skills/project-context"},
+      "display_name": "Pi / pi-mono", "binaries": ["pi"], "user_marker": ".pi",
+      "skills": {"user": "~/.agents/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "/skill:project-context", "direct": true},
       "instructions": ["AGENTS.md", "CLAUDE.md"],
-      "lifecycle": {"mechanism": "generated-typescript-extension", "project": ".pi/extensions/project-context.ts", "user": "~/.pi/agent/extensions/project-context.ts", "startup_injection": true, "turn_baseline": true, "stop_gate": false}
+      "lifecycle": {"mechanism": "generated-typescript-extension", "project": ".pi/extensions/project-context.ts", "user": "~/.pi/agent/extensions/project-context.ts", "startup_injection": "first-turn", "turn_baseline": true, "stop_behavior": "observe"},
+      "evidence": ["https://pi.dev/docs/latest/skills", "https://pi.dev/docs/latest/extensions"]
     },
     "antigravity": {
-      "display_name": "Google Antigravity CLI",
+      "display_name": "Google Antigravity", "binaries": ["agy"], "user_marker": ".gemini",
       "skills": {"user": "~/.gemini/config/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "ask to use project-context", "direct": false},
       "instructions": ["AGENTS.md", "GEMINI.md"],
-      "lifecycle": {"mechanism": "native-hooks-json", "project": ".agents/hooks.json", "user": "~/.gemini/config/hooks.json", "startup_injection": true, "turn_baseline": true, "stop_gate": true}
+      "lifecycle": {"mechanism": "native-hooks-json", "project": ".agents/hooks.json", "user": "~/.gemini/config/hooks.json", "startup_injection": "first-invocation", "turn_baseline": true, "stop_behavior": "continue"},
+      "evidence": ["https://antigravity.google/docs/skills", "https://antigravity.google/docs/hooks"]
     },
     "hermes": {
-      "display_name": "Hermes Agent",
-      "skills": {"user": "~/.hermes/skills/project-context", "project": null},
+      "display_name": "Hermes Agent", "binaries": ["hermes"], "user_marker": ".hermes",
+      "skills": {"user": "~/.hermes/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["AGENTS.md"],
-      "lifecycle": {"mechanism": "generated-python-plugin", "project": ".hermes/plugins/project-context", "user": "~/.hermes/plugins/project-context", "startup_injection": true, "turn_baseline": true, "stop_gate": true, "activation_required": true}
+      "lifecycle": {"mechanism": "generated-python-plugin", "project": ".hermes/plugins/project-context", "user": "~/.hermes/plugins/project-context", "startup_injection": "first-turn", "turn_baseline": true, "stop_behavior": "pre-verify", "activation_required": true},
+      "evidence": ["https://hermes-agent.nousresearch.com/docs/user-guide/features/skills", "https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks"]
     },
     "openclaw": {
-      "display_name": "OpenClaw",
-      "skills": {"user": "~/.openclaw/skills/project-context", "project": ".agents/skills/project-context", "compatible_user": "~/.agents/skills/project-context"},
+      "display_name": "OpenClaw", "binaries": ["openclaw"], "user_marker": ".openclaw",
+      "skills": {"user": "~/.agents/skills/project-context", "project": ".agents/skills/project-context"},
+      "invocation": {"primary": "/project-context", "direct": true},
       "instructions": ["workspace AGENTS.md"],
-      "lifecycle": {"mechanism": "generated-internal-hook", "project": "hooks/project-context", "user": "~/.openclaw/hooks/project-context", "startup_injection": true, "turn_baseline": false, "stop_gate": false, "activation_required": true}
+      "lifecycle": {"mechanism": "generated-internal-hook", "project": "hooks/project-context", "user": "~/.openclaw/hooks/project-context", "startup_injection": "bootstrap-file", "turn_baseline": false, "stop_behavior": "unavailable", "activation_required": true},
+      "evidence": ["https://docs.openclaw.ai/tools/skills", "https://docs.openclaw.ai/automation/hooks"]
     }
   }
 }

@@ -2,7 +2,7 @@
 
 ## 1. Install the portable skill/runtime
 
-Extract the package, enter `project-context-v0.3.0/`, then run:
+Extract the package, enter `project-context-v0.4.0/`, then run:
 
 ```bash
 python3 scripts/install.py install --hosts auto
@@ -27,6 +27,19 @@ python3 scripts/install.py skills --hosts all --scope user
 ```bash
 cd /path/to/repo
 ctx init --instructions
+```
+
+Storage/checkpoint examples:
+
+```bash
+# Share one ledger across worktrees in this clone
+ctx init --storage git-common --instructions
+
+# Require a checkpoint only after changed Git state
+ctx init --checkpoint-gate changed-work --instructions
+
+# Strictly require append or skip after every completed turn
+ctx init --checkpoint-gate every-turn --instructions
 ```
 
 Creates:
@@ -74,6 +87,7 @@ Claude Code  .claude/settings.json
 Codex        .codex/hooks.json
 Grok Build   .grok/hooks/project-context.json
 OpenCode     .opencode/plugins/project-context.js
+             .opencode/commands/project-context.md
 Cursor CLI   .cursor/hooks.json
 Droid        .factory/hooks.json
 Pi           .pi/extensions/project-context.ts
@@ -110,15 +124,16 @@ and follow the printed host-specific activation/trust note.
 
 `--activate` performs only documented best-effort enable commands where safe and available; it does not fake trust decisions.
 
-## 7. Stop enforcement starts disabled
+## 7. Checkpoint enforcement starts disabled
 
 Default repo config:
 
 ```json
-"hooks": {"stop_check": false}
+"checkpoint": {"stop_gate": "off"},
+"storage": {"mode": "repo", "tracking": "unmanaged"}
 ```
 
-Enable later if desired. Even with lifecycle adapters installed, semantic observations remain agent-authored.
+Choose `changed-work` or `every-turn` later if desired. Legacy `hooks.stop_check: true` is still accepted as `changed-work`. Even with lifecycle adapters installed, semantic observations remain agent-authored.
 
 ## 8. Verification
 

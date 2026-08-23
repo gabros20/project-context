@@ -33,6 +33,12 @@ ctx blockers
 
 This gives the agent durable state plus the unreflected frontier.
 
+Reflection coverage is scope-aware. A reflection for `docs` does not advance or hide the `auth` frontier. Path retrieval follows direct `related_paths`, files/artifacts, and a reflection's supporting entry links.
+
+The packet reserves space in priority order for the relevant reflection, newest handoff, newest frontier entry, high/critical records, and recent lower-priority entries. It selects newest-first under the budget and renders selected entries chronologically.
+
+Use `ctx context --explain` to see selected entry IDs, selection reasons, and the count omitted by the budget.
+
 ## Budgets
 
 Repository config controls approximate token budgets. The implementation estimates tokens conservatively from characters; it does not require a tokenizer dependency.

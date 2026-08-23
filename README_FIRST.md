@@ -1,11 +1,11 @@
-# Project Context Universal v0.3.0
+# Project Context v0.4.0
 
-This is a plain download bundle. The actual Agent Skill is inside `project-context-v0.3.0/` so the outer ZIP is not itself treated as a skill card.
+This is a plain download bundle. The actual Agent Skill is inside `project-context-v0.4.0/` so the outer ZIP is not itself treated as a skill card.
 
 ## Quick start
 
 ```bash
-cd project-context-v0.3.0
+cd project-context-v0.4.0
 python3 scripts/install.py install --hosts auto
 ```
 
@@ -27,4 +27,4 @@ Or tell an agent with the skill installed:
 
 > Add the project-context lifecycle hooks to this project.
 
-See `PROJECT_CONTEXT_UNIVERSAL_ARCHITECTURE.md` and `project-context-v0.3.0/INSTALL.md`.
+See `ARCHITECTURE.md`, `docs/decisions/`, and `project-context-v0.4.0/INSTALL.md`.

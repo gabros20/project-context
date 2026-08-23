@@ -1,4 +1,6 @@
-# Project Context Universal v0.3 — Architecture
+# Project Context v0.4 — Architecture
+
+> Compatibility filename. The normative architecture is [`ARCHITECTURE.md`](ARCHITECTURE.md); new decisions are recorded under `docs/decisions/`.
 
 ## 1. Objective
 
@@ -160,7 +162,7 @@ Installer invariants:
 
 ## 10. Why Stop is soft by default
 
-`hooks.stop_check` defaults to `false`. Once enabled, supported hosts can ask the model to continue if the Git fingerprint changed without a matching context checkpoint. The agent may either append a real observation/handoff/reflection or explicitly run `ctx skip` for genuinely non-durable changes.
+`checkpoint.stop_gate` defaults to `off`. `changed-work` gates changed Git state and `every-turn` also covers reasoning-only work. Legacy `hooks.stop_check: true` maps to `changed-work`.
 
 This avoids a noisy “log every turn” bureaucracy while still allowing strict teams to enable enforcement.
 
@@ -179,7 +181,7 @@ The protocol is independent of which transport is chosen.
 ## 12. Package layout
 
 ```text
-project-context-v0.3.0/
+project-context-v0.4.0/
 ├── SKILL.md
 ├── README.md
 ├── INSTALL.md

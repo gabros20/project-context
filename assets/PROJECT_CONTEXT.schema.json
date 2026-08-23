@@ -55,6 +55,11 @@
       "items": {"type": "string", "minLength": 1},
       "uniqueItems": true
     },
+    "related_paths": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+      "uniqueItems": true
+    },
     "context": {"type": "string", "minLength": 1},
     "decisions": {
       "type": "array",
@@ -112,6 +117,7 @@
     "changes": {
       "type": "object",
       "properties": {
+        "capture": {"enum": ["agent-authored", "git-snapshot"]},
         "commits": {"type": "array", "items": {"type": "string"}},
         "files": {
           "type": "array",
@@ -192,6 +198,7 @@
     "coverage": {
       "type": "object",
       "properties": {
+        "scope": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
         "from_entry_id": {"type": "string"},
         "through_entry_id": {"type": "string"},
         "supporting_entry_ids": {"type": "array", "items": {"type": "string"}}

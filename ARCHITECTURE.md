@@ -1,4 +1,4 @@
-# Project Context Universal v0.3 — Architecture
+# Project Context v0.4 — Architecture
 
 ## 1. Objective
 
@@ -7,6 +7,8 @@
 A fresh agent should be able to recover: what happened; why decisions were made; approaches that worked or failed; verified facts versus hypotheses; changed code/artifacts; current blockers/open questions; and the exact frontier of unfinished work.
 
 The system supports Claude Code, Codex, Grok Build, OpenCode, Cursor CLI, Factory Droid, Pi/pi-mono, Google Antigravity CLI, Hermes Agent, and OpenClaw through thin adapters.
+
+The observation/reflection projection is inspired by Mastra Observational Memory and the pi-observational-memory implementation. Unlike those runtime-specific systems, the portable core does not require automatic background model calls or transcript ownership. See [ADR-001](docs/decisions/001-portable-observational-ledger.md).
 
 ## 2. Architectural rule
 
@@ -52,7 +54,7 @@ Rich episodic memory for one coherent unit of durable work. Its narrative `conte
 
 ### Reflection
 
-A new append-only record that consolidates durable understanding from older observations. It never rewrites or deletes history. `coverage` points to the source range and supporting entry IDs.
+A new append-only record that consolidates durable understanding from older observations. It never rewrites or deletes history. Coverage is scope-aware, calculated under the append lock, and points to the source range and supporting entry IDs. A reflection never advances an unrelated subsystem's frontier.
 
 ### Handoff
 
@@ -96,7 +98,7 @@ Semantics:
 - `turn-start`: record per-turn Git fingerprint.
 - `pre-invocation`: Antigravity-specific bridge combining first invocation injection and turn start.
 - `compact-before` / `compact-after`: mark memory-risk boundaries; host adapters may refresh context.
-- `stop`: optional missing-checkpoint guard. Disabled by default.
+- `stop`: optional missing-checkpoint guard controlled by `checkpoint.stop_gate`.
 - `session-end`: close transient session state.
 
 No adapter automatically writes an observation from a transcript. Semantic memory remains agent-authored.
@@ -158,9 +160,9 @@ Installer invariants:
 8. Generated plugin/extension/hook files receive the same backup rule.
 9. Never bypass host trust/workspace/plugin security decisions.
 
-## 10. Why Stop is soft by default
+## 10. Checkpoint modes
 
-`hooks.stop_check` defaults to `false`. Once enabled, supported hosts can ask the model to continue if the Git fingerprint changed without a matching context checkpoint. The agent may either append a real observation/handoff/reflection or explicitly run `ctx skip` for genuinely non-durable changes.
+`checkpoint.stop_gate` defaults to `off`. `changed-work` requests a checkpoint when the Git fingerprint changed; `every-turn` also covers reasoning-only work. The agent may append a real observation/handoff/reflection or explicitly run `ctx skip` for genuinely non-durable work. Legacy `hooks.stop_check: true` maps to `changed-work`.
 
 This avoids a noisy “log every turn” bureaucracy while still allowing strict teams to enable enforcement.
 
@@ -168,25 +170,28 @@ This avoids a noisy “log every turn” bureaucracy while still allowing strict
 
 The JSONL is append-only and writes are lock-protected. Records contain Git branch/worktree/HEAD metadata but Git is evidence, not synchronization.
 
-For agents in separate Git worktrees, a continuously committed single EOF log can itself create merge conflicts. Deployment options:
+Storage modes make the sharing boundary explicit:
 
-- shared filesystem log outside branch history with periodic snapshots;
-- dedicated coordination worktree/service;
-- repo-local log with a workflow accepting/merging append conflicts.
+- `repo`: one checkout-local ledger;
+- `git-common`: one ledger shared by worktrees in the same clone;
+- `external`: an explicit absolute path managed by the user.
+
+Tracking is independently `unmanaged`, `ignored`, or `versioned`. Separate clones and machines still require Git or user-managed synchronization; no hidden transport is implied.
 
 The protocol is independent of which transport is chosen.
 
 ## 12. Package layout
 
 ```text
-project-context-v0.3.0/
+project-context-v0.4.0/
 ├── SKILL.md
 ├── README.md
 ├── INSTALL.md
 ├── ARCHITECTURE.md
 ├── adapters/
 │   ├── HOSTS.json
-│   └── README.md
+│   ├── README.md
+│   └── templates/          # generated host adapter sources
 ├── scripts/
 │   ├── ctx.py
 │   └── install.py
@@ -201,6 +206,8 @@ project-context-v0.3.0/
 │   ├── logging-policy.md
 │   └── hooks.md
 ├── examples/
+├── docs/decisions/
+├── CHANGELOG.md
 └── tests/
 ```
 

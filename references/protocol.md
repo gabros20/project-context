@@ -22,6 +22,7 @@ Optional structured sections:
 - `attempts`
 - `learnings`
 - `changes`
+- `related_paths` for paths affected by the durable conclusion even when they are not dirty
 - `verification`
 - `current_state`
 - `related_entries`
@@ -102,9 +103,22 @@ A reflection may include:
 
 `through_entry_id` means the reflection has considered history through that point. `supporting_entry_ids` identifies the entries that materially support the reflected durable state.
 
+Automatic coverage is scoped. The CLI finds the previous reflection whose scope overlaps the new reflection, then covers only subsequent observations and handoffs in the new reflection's scope. An empty scope is project-wide. Coverage calculation and append happen under the same ledger lock.
+
+`coverage.scope` records the scope used for the calculation. `through_entry_id` is a scoped watermark, never permission to hide unrelated subsystem history.
+
+New reflections require at least one unreflected source record. `ctx reflect --allow-empty-coverage` is reserved for a deliberate initial baseline.
+
 Do not claim a source is represented by a reflection if its unique durable meaning was omitted.
 
 The current implementation never deletes covered observations, so coverage mistakes are recoverable.
+
+## Change attribution
+
+`changes.capture` distinguishes agent-authored file attribution from a repository snapshot:
+
+- `agent-authored` means the semantic payload intentionally attributed the listed files;
+- `git-snapshot` means `ctx` filled the list from the dirty worktree and the files may include concurrent or pre-existing changes.
 
 ## Metadata owned by ctx
 

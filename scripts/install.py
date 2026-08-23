@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import stat
@@ -22,39 +23,31 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
-PACKAGE_VERSION = "0.3.0"
+PACKAGE_VERSION = "0.4.0"
 SKILL_NAME = "project-context"
-HOSTS = ("claude", "codex", "grok", "opencode", "cursor", "droid", "pi", "antigravity", "hermes", "openclaw")
+SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-BINARIES = {
-    "claude": ("claude",),
-    "codex": ("codex",),
-    "grok": ("grok",),
-    "opencode": ("opencode",),
-    "cursor": ("agent",),
-    "droid": ("droid",),
-    "pi": ("pi",),
-    "antigravity": ("agy",),
-    "hermes": ("hermes",),
-    "openclaw": ("openclaw",),
-}
 
-USER_MARKERS = {
-    "claude": ".claude",
-    "codex": ".codex",
-    "grok": ".grok",
-    "opencode": ".config/opencode",
-    "cursor": ".cursor",
-    "droid": ".factory",
-    "pi": ".pi",
-    "antigravity": ".gemini",
-    "hermes": ".hermes",
-    "openclaw": ".openclaw",
-}
+def load_host_manifest() -> dict[str, Any]:
+    path = SOURCE_ROOT / "adapters" / "HOSTS.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Cannot load host capability manifest {path}: {exc}") from exc
+    if not isinstance(data.get("hosts"), dict):
+        raise RuntimeError(f"Host capability manifest has no hosts object: {path}")
+    return data
+
+
+HOST_MANIFEST = load_host_manifest()
+HOST_DATA: dict[str, dict[str, Any]] = HOST_MANIFEST["hosts"]
+HOSTS = tuple(HOST_DATA)
+BINARIES = {name: tuple(data.get("binaries", [])) for name, data in HOST_DATA.items()}
+USER_MARKERS = {name: str(data.get("user_marker", "")) for name, data in HOST_DATA.items()}
 
 
 def source_root() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parent.parent
+    return SOURCE_ROOT
 
 
 def home() -> pathlib.Path:
@@ -246,36 +239,26 @@ def parse_hosts(value: str) -> list[str]:
 
 # ---------- skill locations ----------
 
+def manifest_path(value: str | None, root: pathlib.Path | None = None) -> pathlib.Path | None:
+    if not value:
+        return None
+    if value.startswith("~/"):
+        return home() / value[2:]
+    path = pathlib.Path(value)
+    if path.is_absolute():
+        return path
+    if root is None:
+        raise RuntimeError(f"Project root required to resolve {value}")
+    return root / path
+
 def user_skill_path(host_name: str) -> pathlib.Path:
-    paths = {
-        "claude": home() / ".claude/skills/project-context",
-        "codex": home() / ".agents/skills/project-context",
-        "grok": home() / ".grok/skills/project-context",
-        "opencode": home() / ".config/opencode/skills/project-context",
-        "cursor": home() / ".cursor/skills/project-context",
-        "droid": home() / ".factory/skills/project-context",
-        "pi": home() / ".pi/agent/skills/project-context",
-        "antigravity": home() / ".gemini/config/skills/project-context",
-        "hermes": home() / ".hermes/skills/project-context",
-        "openclaw": home() / ".openclaw/skills/project-context",
-    }
-    return paths[host_name]
+    path = manifest_path(str(HOST_DATA[host_name]["skills"]["user"]))
+    assert path is not None
+    return path
 
 
 def project_skill_path(host_name: str, root: pathlib.Path) -> pathlib.Path | None:
-    paths = {
-        "claude": root / ".claude/skills/project-context",
-        "codex": root / ".agents/skills/project-context",
-        "grok": root / ".grok/skills/project-context",
-        "opencode": root / ".opencode/skills/project-context",
-        "cursor": root / ".cursor/skills/project-context",
-        "droid": root / ".factory/skills/project-context",
-        "pi": root / ".pi/skills/project-context",
-        "antigravity": root / ".agents/skills/project-context",
-        "hermes": None,  # Hermes documents ~/.hermes/skills as its skill source.
-        "openclaw": root / ".agents/skills/project-context",
-    }
-    return paths[host_name]
+    return manifest_path(HOST_DATA[host_name]["skills"].get("project"), root)
 
 
 def install_skills(hosts: list[str], scope: str, root: pathlib.Path | None, force: bool) -> None:
@@ -412,24 +395,10 @@ def merge_antigravity(config: dict[str, Any]) -> bool:
 
 
 def json_hook_path(host_name: str, scope: str, root: pathlib.Path | None) -> pathlib.Path | None:
-    if scope == "project":
-        assert root is not None
-        return {
-            "claude": root / ".claude/settings.json",
-            "codex": root / ".codex/hooks.json",
-            "grok": root / ".grok/hooks/project-context.json",
-            "cursor": root / ".cursor/hooks.json",
-            "droid": root / ".factory/hooks.json",
-            "antigravity": root / ".agents/hooks.json",
-        }.get(host_name)
-    return {
-        "claude": home() / ".claude/settings.json",
-        "codex": home() / ".codex/hooks.json",
-        "grok": home() / ".grok/hooks/project-context.json",
-        "cursor": home() / ".cursor/hooks.json",
-        "droid": home() / ".factory/hooks.json",
-        "antigravity": home() / ".gemini/config/hooks.json",
-    }.get(host_name)
+    lifecycle = HOST_DATA[host_name].get("lifecycle", {})
+    if lifecycle.get("mechanism") not in {"command-hooks", "native-hooks-json"}:
+        return None
+    return manifest_path(lifecycle.get(scope), root)
 
 
 def install_json_host(host_name: str, scope: str, root: pathlib.Path | None) -> pathlib.Path:
@@ -462,49 +431,122 @@ def js_string(value: str) -> str:
     return json.dumps(value)
 
 
-def opencode_plugin() -> str:
+def render_adapter_template(name: str, **values: str) -> str:
+    path = source_root() / "adapters" / "templates" / name
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read adapter template {path}: {exc}") from exc
+    for key, value in values.items():
+        text = text.replace(f"@@{key}@@", value)
+    unresolved = sorted(set(re.findall(r"@@[A-Z_]+@@", text)))
+    if unresolved:
+        raise RuntimeError(f"Unresolved adapter template values in {path}: {', '.join(unresolved)}")
+    return text
+
+
+def inline_opencode_plugin_fallback() -> str:
     py, ctx = python_exe(), str(runtime_ctx())
     return f'''// Generated by project-context {PACKAGE_VERSION}.\nimport {{ spawnSync }} from "node:child_process";\nconst PY={js_string(py)}; const CTX={js_string(ctx)};\nfunction run(args, input, cwd) {{ const r=spawnSync(PY,[CTX,...args],{{input:JSON.stringify(input||{{}}),encoding:"utf8",cwd}}); return (r.stdout||"").trim(); }}\nfunction sid(event) {{ return event?.properties?.info?.id || event?.properties?.sessionID || event?.properties?.sessionId || "opencode-runtime"; }}\nexport const ProjectContextPlugin = async ({{ directory, worktree }}) => ({{\n  event: async ({{event}}) => {{\n    const base={{cwd:worktree||directory,session_id:sid(event)}};\n    if(event.type==="session.created") run(["hook","session-start","--host","opencode"],base,directory);\n    if(event.type==="session.idle") run(["hook","stop","--host","opencode"],base,directory);\n    if(event.type==="session.compacted") run(["hook","compact-after","--host","opencode"],base,directory);\n    if(event.type==="session.deleted") run(["hook","session-end","--host","opencode"],base,directory);\n  }},\n  "experimental.session.compacting": async (input, output) => {{\n    run(["hook","compact-before","--host","opencode"],{{cwd:worktree||directory,session_id:input?.sessionID||"opencode-runtime"}},directory);\n    const r=spawnSync(PY,[CTX,"--cwd",worktree||directory,"startup","--compact"],{{encoding:"utf8",cwd:directory}});\n    if(r.status===0 && r.stdout.trim()) output.context.push(r.stdout.trim());\n  }}\n}});\n'''
 
 
-def pi_extension() -> str:
+def opencode_command() -> str:
+    return '''---
+description: Checkpoint or retrieve shared project context
+---
+
+Load the `project-context` skill and execute it as an explicit user invocation.
+Treat no arguments as a request to checkpoint the current session.
+Arguments from the user: $ARGUMENTS
+'''
+
+
+def inline_pi_extension_fallback() -> str:
     py, ctx = python_exe(), str(runtime_ctx())
     return f'''// Generated by project-context {PACKAGE_VERSION}.\nimport {{ spawnSync }} from "node:child_process";\nexport default function projectContext(pi) {{\n  const PY={js_string(py)}, CTX={js_string(ctx)}; let sessionId=`pi-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`; let injected=false;\n  const run=(event,data,cwd)=>spawnSync(PY,[CTX,"hook",event,"--host","pi"],{{input:JSON.stringify({{cwd,session_id:sessionId,...data}}),encoding:"utf8",cwd}});\n  const startup=(cwd)=>spawnSync(PY,[CTX,"--cwd",cwd,"startup"],{{encoding:"utf8",cwd}});\n  pi.on("session_start", async (event, c) => {{ sessionId=c.sessionManager.getSessionFile?.() || sessionId; run("session-start",{{source:event.reason}},c.cwd); injected=false; }});\n  pi.on("before_agent_start", async (event, c) => {{\n    run("turn-start",{{}},c.cwd);\n    if(!injected) {{ const r=startup(c.cwd); injected=true; if(r.status===0 && r.stdout.trim()) return {{message:{{customType:"project-context",content:r.stdout.trim(),display:false}}}}; }}\n  }});\n  pi.on("session_before_compact", async (_event,c)=>{{ run("compact-before",{{}},c.cwd); }});\n  pi.on("session_compact", async (_event,c)=>{{ run("compact-after",{{}},c.cwd); injected=false; }});\n  pi.on("agent_settled", async (_event,c)=>{{ run("stop",{{}},c.cwd); }});\n  pi.on("session_shutdown", async (_event,c)=>{{ run("session-end",{{}},c.cwd); }});\n}}\n'''
 
 
-def hermes_plugin_files() -> dict[str, str]:
+def inline_hermes_plugin_fallback() -> dict[str, str]:
     py, ctx = python_exe(), str(runtime_ctx())
     plugin_yaml = f'''name: project-context\nversion: "{PACKAGE_VERSION}"\ndescription: Shared append-only project memory lifecycle integration.\n'''
     pycode = f'''"""Generated project-context lifecycle plugin."""\nimport json, os, subprocess\nPY={py!r}\nCTX={ctx!r}\n\ndef _cwd(kwargs): return kwargs.get("cwd") or os.getcwd()\ndef _run(event, kwargs):\n    payload=dict(kwargs); payload.setdefault("cwd", _cwd(kwargs))\n    p=subprocess.run([PY,CTX,"hook",event,"--host","hermes"],input=json.dumps(payload),text=True,capture_output=True,cwd=_cwd(kwargs))\n    return p.stdout.strip()\ndef _startup(kwargs):\n    p=subprocess.run([PY,CTX,"--cwd",_cwd(kwargs),"startup"],text=True,capture_output=True,cwd=_cwd(kwargs))\n    return p.stdout.strip() if p.returncode==0 else ""\n\ndef on_start(**kwargs): _run("session-start",kwargs)\ndef pre_llm_call(is_first_turn=False, **kwargs):\n    _run("turn-start",kwargs)\n    if is_first_turn:\n        text=_startup(kwargs)\n        if text: return {{"context": text}}\n    return None\ndef pre_verify(coding=False, attempt=0, **kwargs):\n    if not coding or attempt: return None\n    out=_run("stop",kwargs)\n    if not out: return None\n    try: return json.loads(out)\n    except Exception: return None\ndef on_end(**kwargs): _run("session-end",kwargs)\n\ndef register(ctx):\n    ctx.register_hook("on_session_start", on_start)\n    ctx.register_hook("pre_llm_call", pre_llm_call)\n    ctx.register_hook("pre_verify", pre_verify)\n    ctx.register_hook("on_session_end", on_end)\n'''
     return {"plugin.yaml": plugin_yaml, "__init__.py": pycode}
 
 
-def openclaw_hook_files() -> dict[str, str]:
+def inline_openclaw_hook_fallback() -> dict[str, str]:
     py, ctx = python_exe(), str(runtime_ctx())
     hookmd = '''---\nname: project-context\ndescription: "Inject project-context memory at agent bootstrap and track compaction/session boundaries."\nmetadata:\n  {"openclaw":{"emoji":"🧠","events":["agent:bootstrap","session:compact:before","session:compact:after","command:new","command:reset","session:auto-reset"],"requires":{"bins":["python3"]}}}\n---\n# Project Context\nGenerated lifecycle bridge. Semantic memory remains agent-authored through the project-context skill.\n'''
     handler = f'''import {{ spawnSync }} from "node:child_process";\nimport {{ writeFileSync, mkdirSync }} from "node:fs";\nimport {{ join }} from "node:path";\nconst PY={js_string(py)}, CTX={js_string(ctx)};\nconst handler=async(event)=>{{\n  const cwd=event?.context?.workspaceDir || process.cwd(); const session_id=event?.sessionKey || event?.context?.sessionId || "openclaw-runtime";\n  const run=(ev)=>spawnSync(PY,[CTX,"hook",ev,"--host","openclaw"],{{input:JSON.stringify({{cwd,session_id}}),encoding:"utf8",cwd}});\n  if(event.type==="agent" && event.action==="bootstrap"){{\n    run("session-start"); const r=spawnSync(PY,[CTX,"--cwd",cwd,"startup"],{{encoding:"utf8",cwd}});\n    if(r.status===0 && r.stdout.trim() && Array.isArray(event.context?.bootstrapFiles)){{\n      const d=join(homedir(),".cache","project-context","openclaw"); mkdirSync(d,{{recursive:true}}); const f=join(d,`${{session_id.replace(/[^A-Za-z0-9_.-]/g,"_")}}.md`); writeFileSync(f,r.stdout); event.context.bootstrapFiles.push(f);\n    }}\n  }}\n  if(event.type==="session" && event.action==="compact:before") run("compact-before");\n  if(event.type==="session" && event.action==="compact:after") run("compact-after");\n  if((event.type==="command" && (event.action==="new"||event.action==="reset")) || (event.type==="session"&&event.action==="auto-reset")) run("session-end");\n}}; export default handler;\n'''
+    handler = handler.replace(
+        'import { join } from "node:path";\n',
+        'import { join } from "node:path";\nimport { homedir } from "node:os";\n',
+    )
     return {"HOOK.md": hookmd, "handler.js": handler}
 
 
+def templated_opencode_plugin() -> str:
+    try:
+        return render_adapter_template(
+            "opencode-plugin.js", PACKAGE_VERSION=PACKAGE_VERSION,
+            PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
+        )
+    except RuntimeError:
+        return inline_opencode_plugin_fallback()
+
+
+def templated_pi_extension() -> str:
+    try:
+        return render_adapter_template(
+            "pi-extension.ts", PACKAGE_VERSION=PACKAGE_VERSION,
+            PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
+        )
+    except RuntimeError:
+        return inline_pi_extension_fallback()
+
+
+def templated_hermes_plugin_files() -> dict[str, str]:
+    values = {"PACKAGE_VERSION": PACKAGE_VERSION, "PYTHON": repr(python_exe()), "CTX": repr(str(runtime_ctx()))}
+    try:
+        return {
+            "plugin.yaml": render_adapter_template("hermes-plugin.yaml", **values),
+            "__init__.py": render_adapter_template("hermes-plugin.py", **values),
+        }
+    except RuntimeError:
+        return inline_hermes_plugin_fallback()
+
+
+def templated_openclaw_hook_files() -> dict[str, str]:
+    values = {"PYTHON": js_string(python_exe()), "CTX": js_string(str(runtime_ctx()))}
+    try:
+        return {
+            "HOOK.md": render_adapter_template("openclaw-HOOK.md", **values),
+            "handler.js": render_adapter_template("openclaw-handler.js", **values),
+        }
+    except RuntimeError:
+        return inline_openclaw_hook_fallback()
+
+
 def install_generated_host(host_name: str, scope: str, root: pathlib.Path | None) -> list[pathlib.Path]:
+    lifecycle_path = manifest_path(HOST_DATA[host_name]["lifecycle"].get(scope), root)
+    if lifecycle_path is None:
+        raise RuntimeError(f"No {scope} lifecycle location is documented for {host_name}")
     if host_name == "opencode":
-        base = (root / ".opencode/plugins" if scope == "project" else home() / ".config/opencode/plugins")
-        path = base / "project-context.js"
-        write_generated(path, opencode_plugin()); return [path]
+        path = lifecycle_path
+        command = (root / ".opencode/commands/project-context.md" if scope == "project" else home() / ".config/opencode/commands/project-context.md")
+        write_generated(path, templated_opencode_plugin()); write_generated(command, opencode_command()); return [path, command]
     if host_name == "pi":
-        base = (root / ".pi/extensions" if scope == "project" else home() / ".pi/agent/extensions")
-        path = base / "project-context.ts"
-        write_generated(path, pi_extension()); return [path]
+        path = lifecycle_path
+        write_generated(path, templated_pi_extension()); return [path]
     if host_name == "hermes":
-        base = (root / ".hermes/plugins/project-context" if scope == "project" else home() / ".hermes/plugins/project-context")
+        base = lifecycle_path
         out=[]
-        for name,text in hermes_plugin_files().items():
+        for name,text in templated_hermes_plugin_files().items():
             p=base/name; write_generated(p,text); out.append(p)
         return out
     if host_name == "openclaw":
-        base = (root / "hooks/project-context" if scope == "project" else home() / ".openclaw/hooks/project-context")
+        base = lifecycle_path
         out=[]
-        for name,text in openclaw_hook_files().items():
+        for name,text in templated_openclaw_hook_files().items():
             p=base/name; write_generated(p,text); out.append(p)
         return out
     raise RuntimeError(host_name)
@@ -558,12 +600,11 @@ def status(hosts: list[str], scope: str, root: pathlib.Path | None) -> None:
     if root: print(f"project: {root}")
     for h in hosts:
         skill = user_skill_path(h) if scope=="user" else project_skill_path(h, root or discover_repo())
-        hook_path = json_hook_path(h, scope, root) if h in {"claude","codex","grok","cursor","droid","antigravity"} else None
-        if h=="opencode": hook_path=(root/".opencode/plugins/project-context.js" if scope=="project" else home()/".config/opencode/plugins/project-context.js")
-        if h=="pi": hook_path=(root/".pi/extensions/project-context.ts" if scope=="project" else home()/".pi/agent/extensions/project-context.ts")
-        if h=="hermes": hook_path=(root/".hermes/plugins/project-context" if scope=="project" else home()/".hermes/plugins/project-context")
-        if h=="openclaw": hook_path=(root/"hooks/project-context" if scope=="project" else home()/".openclaw/hooks/project-context")
-        print(f"{h:12} skill={'yes' if skill and skill.exists() else 'no ':3} lifecycle={'yes' if hook_path and hook_path.exists() else 'no ':3}  {hook_path or ''}")
+        hook_path = manifest_path(HOST_DATA[h].get("lifecycle", {}).get(scope), root)
+        invocation = HOST_DATA[h].get("invocation", {}).get("primary", "unknown")
+        trust = " trust-required" if scope == "project" and HOST_DATA[h].get("lifecycle", {}).get("trust_required_project") else ""
+        activation = " activation-required" if HOST_DATA[h].get("lifecycle", {}).get("activation_required") else ""
+        print(f"{h:12} skill={'yes' if skill and skill.exists() else 'no ':3} lifecycle={'yes' if hook_path and hook_path.exists() else 'no ':3} invoke={invocation}{trust}{activation}  {hook_path or ''}")
 
 
 def cmd_detect(_args: argparse.Namespace) -> int:
@@ -573,7 +614,7 @@ def cmd_detect(_args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p=argparse.ArgumentParser(description="Install the universal project-context skill and lifecycle adapters")
+    p=argparse.ArgumentParser(description="Install the portable project-context skill and capability-specific lifecycle adapters")
     p.add_argument("--version", action="version", version=PACKAGE_VERSION)
     sub=p.add_subparsers(dest="cmd", required=True)
 

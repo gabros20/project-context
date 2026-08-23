@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 40" role="img" aria-labelledby="title desc">
+  <title id="title">project-context</title>
+  <desc id="desc">An open context bracket surrounding an append-only ledger spine.</desc>
+  <rect width="40" height="40" rx="8" fill="#F7F9FC"/>
+  <path d="M15 8H8v24h7M25 8h7v24h-7" fill="none" stroke="#151821" stroke-width="2.5"/>
+  <path d="M20 10v20" stroke="#325BFF" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="20" cy="14" r="2" fill="#325BFF"/>
+  <circle cx="20" cy="20" r="2" fill="#325BFF"/>
+  <circle cx="20" cy="26" r="2" fill="#F05A35"/>
+  <text x="52" y="26.5" fill="#151821" font-family="Avenir Next, Segoe UI, sans-serif" font-size="20" font-weight="650" letter-spacing="-0.4">project-context</text>
+</svg>

@@ -15,8 +15,12 @@
   "reflection": {
     "suggest_after_observations": 20
   },
-  "hooks": {
-    "stop_check": false
+  "checkpoint": {
+    "stop_gate": "off"
+  },
+  "storage": {
+    "mode": "repo",
+    "tracking": "unmanaged"
   },
   "scopes": []
 }

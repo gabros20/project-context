@@ -13,5 +13,25 @@
     "prompt": "What does git rebase do?",
     "should_trigger": false,
     "expected": "Do not activate project-context for a generic explanation unrelated to a configured repository."
+  },
+  {
+    "prompt": "$project-context",
+    "should_trigger": true,
+    "expected": "Treat bare direct invocation as a complete checkpoint request; choose observation, handoff, reflection, or skip without asking the user to reconstruct the session."
+  },
+  {
+    "prompt": "/project-context auth",
+    "should_trigger": true,
+    "expected": "Treat auth as a scope, retrieve targeted context if needed, and checkpoint durable auth work."
+  },
+  {
+    "prompt": "/skill:project-context handoff",
+    "should_trigger": true,
+    "expected": "Create a handoff with explicit current state, remaining work, blockers or questions, and next steps."
+  },
+  {
+    "prompt": "/project-context",
+    "should_trigger": true,
+    "expected": "When the session produced no durable project knowledge, run ctx skip with a truthful reason instead of manufacturing an observation."
   }
 ]

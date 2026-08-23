@@ -6,10 +6,10 @@ const relayStep = document.querySelector(".relay-step");
 const relayCaption = document.querySelector(".relay-caption");
 
 const stages = [
-  { at: 0, step: "Step 1 of 4", caption: "Agents finish coherent work" },
-  { at: 1500, step: "Step 2 of 4", caption: "Durable observations enter one ledger" },
-  { at: 3500, step: "Step 3 of 4", caption: "A reflection consolidates its scoped sources" },
-  { at: 5600, step: "Step 4 of 4", caption: "The next harness receives a bounded frontier" },
+  { at: 0, step: "Step 1 of 4", caption: "Finish a useful chunk of work" },
+  { at: 1500, step: "Step 2 of 4", caption: "Write one checkpoint to the project file" },
+  { at: 3500, step: "Step 3 of 4", caption: "Summarize older notes when the log grows" },
+  { at: 5600, step: "Step 4 of 4", caption: "The next agent loads the relevant notes" },
 ];
 
 let relayTimers = [];
@@ -77,7 +77,7 @@ if (heroLedger && !reduceMotion.matches) {
 }
 
 if (reduceMotion.matches) {
-  showStage({ step: "All 4 stages", caption: "Observe, append, reflect, and resume" });
+  showStage({ step: "All 4 stages", caption: "Write, store, summarize, and continue" });
   if (replay) {
     replay.textContent = "Flow shown";
     replay.disabled = true;

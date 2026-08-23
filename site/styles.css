@@ -210,10 +210,10 @@ a {
 }
 
 .hero h1 {
-  max-width: 8.5ch;
+  max-width: 14ch;
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(4.5rem, 7.25vw, 7.5rem);
+  font-size: clamp(3.75rem, 5vw, 5.75rem);
   font-stretch: condensed;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -539,6 +539,88 @@ a {
 
 .relay-section {
   background: var(--surface-raised);
+}
+
+.features-section {
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.features-heading,
+.runtime-heading {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1.5rem;
+  padding-block: clamp(6rem, 10vw, 9rem) clamp(3rem, 5vw, 4.5rem);
+}
+
+.features-heading .utility-label,
+.runtime-heading .utility-label {
+  grid-column: 1 / span 3;
+  margin: 0;
+}
+
+.features-heading h2,
+.runtime-heading h2 {
+  grid-column: 4 / span 5;
+  margin: 0;
+  font-size: clamp(2.75rem, 1.8rem + 3.2vw, 5rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.features-heading > p:last-child,
+.runtime-heading > p:last-child {
+  grid-column: 9 / -1;
+  align-self: end;
+  max-width: 46ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 1.06rem;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-bottom: clamp(6rem, 10vw, 10rem);
+}
+
+.feature-card {
+  min-height: 18rem;
+  border-top: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line);
+  padding: 2rem;
+  background: var(--surface-raised);
+}
+
+.feature-card:nth-child(3n) {
+  border-right: 1px solid var(--line);
+}
+
+.feature-card:nth-child(n + 4) {
+  border-bottom: 1px solid var(--line);
+}
+
+.feature-number {
+  color: var(--primary);
+  font: 650 0.68rem/1 var(--font-mono);
+}
+
+.feature-card h3 {
+  max-width: 15ch;
+  margin: 3.5rem 0 1rem;
+  font-size: clamp(1.55rem, 1.25rem + 1vw, 2.25rem);
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+.feature-card p {
+  max-width: 38ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.92rem;
 }
 
 .relay-wrap {
@@ -1103,6 +1185,154 @@ a {
   background: var(--surface-raised);
 }
 
+.runtime-section {
+  border-top: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.runtime-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.runtime-mode {
+  min-height: 23rem;
+  border-top: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line);
+  padding: clamp(1.75rem, 3vw, 3rem);
+  background: var(--surface);
+}
+
+.runtime-mode:nth-child(even) {
+  border-right: 1px solid var(--line);
+}
+
+.runtime-mode:nth-child(n + 3) {
+  border-bottom: 1px solid var(--line);
+}
+
+.runtime-mode-recommended {
+  border-top: 3px solid var(--primary);
+  background: var(--primary-soft);
+}
+
+.runtime-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--ink-muted);
+  font: 650 0.68rem/1.2 var(--font-mono);
+}
+
+.runtime-mode-head code {
+  color: var(--primary-hover);
+  font: inherit;
+}
+
+.runtime-mode-head span {
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.runtime-mode h3 {
+  max-width: 18ch;
+  margin: clamp(3rem, 5vw, 5rem) 0 1rem;
+  font-size: clamp(1.8rem, 1.35rem + 1.5vw, 3rem);
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.runtime-mode > p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.runtime-mode dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 3rem 0 0;
+}
+
+.runtime-mode dl div {
+  border-top: 1px solid var(--line-strong);
+  padding-top: 0.85rem;
+}
+
+.runtime-mode dt,
+.cost-list dt {
+  color: var(--ink-muted);
+  font: 600 0.64rem/1.3 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.runtime-mode dd,
+.cost-list dd {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.cost-panel {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: clamp(2rem, 5vw, 6rem);
+  margin-top: clamp(3rem, 6vw, 6rem);
+  margin-bottom: clamp(6rem, 10vw, 10rem);
+  border: 1px solid var(--line-strong);
+  padding-block: clamp(2.5rem, 5vw, 5rem);
+  background: var(--primary-soft);
+}
+
+.cost-copy {
+  grid-column: 1 / span 5;
+}
+
+.cost-copy .utility-label {
+  margin-bottom: 1.5rem;
+}
+
+.cost-copy h3 {
+  margin: 0;
+  font-size: clamp(2rem, 1.5rem + 1.8vw, 3.5rem);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.cost-copy > p:last-child {
+  max-width: 48ch;
+  margin: 1.5rem 0 0;
+  color: var(--ink-muted);
+}
+
+.cost-list {
+  grid-column: 7 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.cost-list div {
+  border-top: 1px solid var(--line-strong);
+  padding: 1rem;
+}
+
+.cost-caveat {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-top: 1px solid var(--line-strong);
+  padding-top: 1.5rem;
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+}
+
+.cost-caveat strong {
+  color: var(--ink);
+}
+
 .controls-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1416,6 +1646,8 @@ a {
 @media (max-width: 56rem) {
   .hero-grid,
   .section-heading,
+  .features-heading,
+  .runtime-heading,
   .records-layout,
   .portability-grid,
   .controls-grid,
@@ -1427,6 +1659,10 @@ a {
   .hero-ledger,
   .section-heading h2,
   .section-heading > p:last-child,
+  .features-heading h2,
+  .features-heading > p:last-child,
+  .runtime-heading h2,
+  .runtime-heading > p:last-child,
   .records-intro,
   .record-observation,
   .record-reflection,
@@ -1446,7 +1682,7 @@ a {
   }
 
   .hero h1 {
-    max-width: 9ch;
+    max-width: 14ch;
   }
 
   .hero-ledger {
@@ -1458,12 +1694,44 @@ a {
     grid-column: 1 / -1;
   }
 
+  .features-heading .utility-label,
+  .runtime-heading .utility-label {
+    grid-column: 1 / -1;
+  }
+
   .section-heading h2 {
     max-width: 12ch;
   }
 
   .section-heading > p:last-child {
     max-width: 55ch;
+  }
+
+  .features-heading > p:last-child,
+  .runtime-heading > p:last-child {
+    max-width: 55ch;
+  }
+
+  .feature-grid,
+  .runtime-modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .feature-card:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .feature-card:nth-child(even) {
+    border-right: 1px solid var(--line);
+  }
+
+  .feature-card:nth-child(n + 5) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .cost-copy,
+  .cost-list {
+    grid-column: 1 / -1;
   }
 
   .relay-stage {
@@ -1597,7 +1865,7 @@ a {
   }
 
   .hero h1 {
-    font-size: clamp(4rem, 22vw, 6.4rem);
+    font-size: clamp(3rem, 13vw, 4rem);
   }
 
   .hero-actions {
@@ -1638,6 +1906,33 @@ a {
 
   .relay-legend {
     grid-template-columns: 1fr;
+  }
+
+  .feature-grid,
+  .runtime-modes,
+  .cost-list {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-card,
+  .feature-card:nth-child(even),
+  .feature-card:nth-child(3n),
+  .runtime-mode,
+  .runtime-mode:nth-child(even) {
+    border-right: 1px solid var(--line);
+  }
+
+  .feature-card {
+    min-height: 15rem;
+  }
+
+  .feature-card:nth-child(n + 1),
+  .runtime-mode:nth-child(n + 1) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .runtime-mode {
+    min-height: 0;
   }
 
   .relay-legend li {

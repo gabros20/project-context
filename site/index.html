@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Portable, append-only project memory for coding agents. Switch between Claude Code, Codex, Grok, Cursor, Pi, and more without losing the thread.">
+  <meta name="description" content="A shared project notebook for coding agents. Switch between Claude Code, Codex, Cursor, Pi, and other tools without explaining the project again.">
   <meta name="theme-color" content="#F7F9FC">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="project-context — shared memory for coding agents">
-  <meta property="og:description" content="One append-only project ledger. Any coding-agent harness. Pick up exactly where the last session stopped.">
+  <meta property="og:title" content="project-context | shared notes for coding agents">
+  <meta property="og:description" content="Save decisions, failed attempts, test results, and unfinished work in one file that your coding agents can share.">
   <meta property="og:url" content="https://project-context-mu.vercel.app">
   <meta name="twitter:card" content="summary">
-  <title>project-context — shared memory for coding agents</title>
+  <title>project-context | shared notes for coding agents</title>
   <link rel="canonical" href="https://project-context-mu.vercel.app">
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=3">
-  <script src="/script.js?v=3" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=4">
+  <script src="/script.js?v=4" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -27,7 +27,8 @@
       </a>
       <div class="site-nav-links">
         <a href="#how-it-works">How it works</a>
-        <a href="#records">Memory model</a>
+        <a href="#features">Features</a>
+        <a href="#runtime">Runtime cost</a>
         <a href="#install">Install</a>
         <a class="nav-github" href="https://github.com/gabros20/project-context">GitHub <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
       </div>
@@ -38,17 +39,17 @@
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="hero-grid shell">
         <div class="hero-copy">
-          <p class="utility-label">Portable agent memory · protocol 1</p>
-          <h1 id="hero-title">Your project should remember.</h1>
-          <p class="hero-lede">Switch from Claude Code to Codex, Grok, Cursor, Pi, or another harness without rebuilding the mental model. One readable ledger keeps decisions, failed attempts, verification, and the exact frontier of unfinished work.</p>
+          <p class="utility-label">Shared notes for coding agents</p>
+          <h1 id="hero-title">Switch agents without starting over.</h1>
+          <p class="hero-lede">project-context saves decisions, failed attempts, test results, and unfinished work in one JSONL file. Claude Code, Codex, Cursor, Pi, and other agents can read it and continue.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#install">Install project-context</a>
             <a class="button button-secondary" href="https://github.com/gabros20/project-context">View on GitHub <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
           </div>
           <dl class="hero-facts" aria-label="Project facts">
-            <div><dt>Runtime</dt><dd>Python 3.10+</dd></div>
-            <div><dt>Storage</dt><dd>Append-only JSONL</dd></div>
-            <div><dt>Service</dt><dd>None required</dd></div>
+            <div><dt>Writes</dt><dd>Only when asked</dd></div>
+            <div><dt>Storage</dt><dd>One JSONL file</dd></div>
+            <div><dt>Server</dt><dd>None</dd></div>
           </dl>
         </div>
 
@@ -78,7 +79,7 @@
         </div>
       </div>
 
-      <div class="harness-rail" aria-label="Supported coding-agent harnesses">
+      <div class="harness-rail" aria-label="Supported coding-agent tools">
         <div class="harness-track shell">
           <span>Claude Code</span><span>Codex</span><span>Grok Build</span><span>OpenCode</span><span>Cursor</span><span>Factory Droid</span><span>Pi</span><span>Antigravity</span><span>Hermes</span><span>OpenClaw</span>
         </div>
@@ -87,16 +88,16 @@
 
     <section class="relay-section" id="how-it-works" aria-labelledby="relay-title">
       <div class="section-heading shell">
-        <p class="utility-label">One ledger, many sessions</p>
-        <h2 id="relay-title">Memory moves with the work.</h2>
-        <p>An agent writes a durable checkpoint. Reflections consolidate older history without deleting it. The next harness receives a bounded, relevant packet—not the whole transcript.</p>
+        <p class="utility-label">What happens</p>
+        <h2 id="relay-title">One agent leaves a useful note. The next one reads it.</h2>
+        <p>Run the skill after a useful chunk of work or before switching tools. The next agent loads the relevant notes, not the whole chat.</p>
       </div>
 
       <div class="relay-wrap shell">
         <div class="relay-toolbar">
           <div class="relay-status" aria-live="polite">
             <span class="relay-step">Step 1 of 4</span>
-            <strong class="relay-caption">Agents finish coherent work</strong>
+            <strong class="relay-caption">Finish a useful chunk of work</strong>
           </div>
           <button class="replay-button" type="button" data-replay>
             Replay flow <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
@@ -105,7 +106,7 @@
 
         <div class="relay-stage" data-relay aria-label="Animated explanation of project-context">
           <div class="relay-source relay-panel">
-            <span class="panel-label">Agent harnesses</span>
+            <span class="panel-label">Your coding agents</span>
             <div class="agent-node"><span>C</span><div><strong>Claude Code</strong><small>session 47</small></div></div>
             <div class="agent-node"><span>⌁</span><div><strong>Codex</strong><small>session 12</small></div></div>
             <div class="agent-node"><span>π</span><div><strong>Pi</strong><small>session 08</small></div></div>
@@ -117,13 +118,13 @@
           </div>
 
           <div class="relay-ledger relay-panel">
-            <div class="panel-label-row"><span class="panel-label">Shared ledger</span><code>JSONL</code></div>
-            <div class="flow-record flow-record-one"><i></i><span>decision + rationale</span></div>
-            <div class="flow-record flow-record-two"><i></i><span>failed attempt + learning</span></div>
-            <div class="flow-record flow-record-three"><i></i><span>verification + changed paths</span></div>
+            <div class="panel-label-row"><span class="panel-label">Project file</span><code>JSONL</code></div>
+            <div class="flow-record flow-record-one"><i></i><span>what changed and why</span></div>
+            <div class="flow-record flow-record-two"><i></i><span>what failed and what it taught us</span></div>
+            <div class="flow-record flow-record-three"><i></i><span>tests run and files changed</span></div>
             <div class="flow-reflection">
-              <span>reflection</span>
-              <strong>Durable state, source-backed</strong>
+              <span>summary</span>
+              <strong>What is still true now</strong>
             </div>
           </div>
 
@@ -133,52 +134,92 @@
           </div>
 
           <div class="relay-destination relay-panel">
-            <span class="panel-label">Next session</span>
+            <span class="panel-label">Next agent</span>
             <div class="context-window">
-              <div class="context-window-title"><span></span> bounded context</div>
-              <p class="context-line context-line-one">Latest reflection</p>
-              <p class="context-line context-line-two">Relevant handoff</p>
-              <p class="context-line context-line-three">High-priority frontier</p>
+              <div class="context-window-title"><span></span> relevant notes</div>
+              <p class="context-line context-line-one">Current design</p>
+              <p class="context-line context-line-two">Unfinished work</p>
+              <p class="context-line context-line-three">Recent important changes</p>
             </div>
             <div class="resume-state"><i></i><span>Ready to continue</span></div>
           </div>
         </div>
 
         <ol class="relay-legend" aria-label="How project context flows">
-          <li><strong>Observe</strong><span>Record a coherent durable result.</span></li>
-          <li><strong>Append</strong><span>Validate and lock one shared event stream.</span></li>
-          <li><strong>Reflect</strong><span>Consolidate a scope without erasing sources.</span></li>
-          <li><strong>Resume</strong><span>Retrieve only the relevant bounded frontier.</span></li>
+          <li><strong>Write</strong><span>Save one useful checkpoint.</span></li>
+          <li><strong>Store</strong><span>Append it to the project file.</span></li>
+          <li><strong>Summarize</strong><span>Condense older notes when needed.</span></li>
+          <li><strong>Continue</strong><span>Load only what matters for the task.</span></li>
         </ol>
+      </div>
+    </section>
+
+    <section class="features-section" id="features" aria-labelledby="features-title">
+      <div class="features-heading shell">
+        <p class="utility-label">What you get</p>
+        <h2 id="features-title">What project-context gives you.</h2>
+        <p>No service to run and no transcript collector watching every command. It is a file, a CLI, and optional adapters for the agent tools you already use.</p>
+      </div>
+      <div class="feature-grid shell">
+        <article class="feature-card">
+          <span class="feature-number">01</span>
+          <h3>Switch tools mid-project</h3>
+          <p>Claude Code can leave a handoff that Codex, Cursor, Pi, or another supported agent can read later.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">02</span>
+          <h3>Save decisions and failed attempts</h3>
+          <p>Save why a decision was made, which approach failed, what the tests proved, and what still needs work.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">03</span>
+          <h3>Write only at useful moments</h3>
+          <p>The default setup writes nothing automatically. Invoke the skill after a milestone or before changing agents.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">04</span>
+          <h3>Find notes by scope or file</h3>
+          <p>Ask for the authentication notes or everything related to one source file. The agent does not need to load the full log.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">05</span>
+          <h3>Use plain local files</h3>
+          <p>The runtime needs Python and Git. Memory is JSONL that you can inspect, version, ignore, or synchronize yourself.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-number">06</span>
+          <h3>Load notes at session start</h3>
+          <p>Optional hooks can load notes at session start and remind an agent to checkpoint. They never call a model in the background.</p>
+        </article>
       </div>
     </section>
 
     <section class="records-section" id="records" aria-labelledby="records-title">
       <div class="records-layout shell">
         <header class="records-intro">
-          <p class="utility-label">The memory model</p>
-          <h2 id="records-title">Rich enough to recover the reasoning. Structured enough to filter.</h2>
-          <p>Storage stays descriptive. Token efficiency comes later, through scope-aware retrieval and reflection.</p>
+          <p class="utility-label">What gets saved</p>
+          <h2 id="records-title">The details another developer would need.</h2>
+          <p>Save conclusions and evidence, not a transcript. Three note types cover completed work, current project knowledge, and unfinished work.</p>
         </header>
 
         <article class="record-type record-observation">
-          <div class="record-type-head"><span>Observation</span><code>durable episode</code></div>
-          <h3>What happened—and why.</h3>
-          <p>Decisions, rationale, alternatives, attempts, learnings, changed artifacts, and exact verification results for one coherent unit of work.</p>
+          <div class="record-type-head"><span>Observation</span><code>completed work</code></div>
+          <h3>A change and the reason for it.</h3>
+          <p>What changed, why this approach won, what failed along the way, which files changed, and the exact test result.</p>
           <div class="field-list"><span>decisions[]</span><span>attempts[]</span><span>learnings[]</span><span>verification[]</span></div>
         </article>
 
         <article class="record-type record-reflection">
-          <div class="record-type-head"><span>Reflection</span><code>durable state</code></div>
-          <h3>What remains true.</h3>
-          <p>A source-backed consolidation with scoped coverage. It changes the retrieval projection, never the original history.</p>
+          <div class="record-type-head"><span>Reflection</span><code>current summary</code></div>
+          <h3>What is still true now.</h3>
+          <p>A summary of older notes for one part of the project. The original entries stay in the file and can still be inspected.</p>
           <div class="field-list"><span>coverage.scope</span><span>supporting_entry_ids</span></div>
         </article>
 
         <article class="record-type record-handoff">
-          <div class="record-type-head"><span>Handoff</span><code>work frontier</code></div>
-          <h3>Where to continue.</h3>
-          <p>Current state, blockers, open questions, remaining work, and concrete next steps for another session or another agent.</p>
+          <div class="record-type-head"><span>Handoff</span><code>unfinished work</code></div>
+          <h3>The exact next step.</h3>
+          <p>What is done, what is blocked, which questions remain, and where the next agent should continue.</p>
           <div class="field-list"><span>current_state</span><span>next_steps[]</span></div>
         </article>
       </div>
@@ -187,37 +228,72 @@
     <section class="portability-section" aria-labelledby="portability-title">
       <div class="portability-grid shell">
         <div class="portability-copy">
-          <p class="utility-label">Portable core, thin edges</p>
-          <h2 id="portability-title">Adapters translate events. They do not own the memory.</h2>
-          <p>Every host keeps its native skill syntax, trust model, and lifecycle capabilities. When a harness cannot actively continue a Stop boundary, project instructions and explicit skill invocation still work.</p>
-          <a class="text-link" href="https://github.com/gabros20/project-context/blob/main/references/hooks.md">Inspect the capability matrix <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+          <p class="utility-label">Works with your tools</p>
+          <h2 id="portability-title">One file, ten coding agents.</h2>
+          <p>Each adapter maps an agent's own skill and hook system to the same <code>ctx</code> command. If a tool has limited hook support, manual skill invocation still works.</p>
+          <a class="text-link" href="https://github.com/gabros20/project-context/blob/main/references/hooks.md">See support for every agent <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
         </div>
         <div class="capability-matrix" role="table" aria-label="Example host capabilities">
-          <div class="matrix-row matrix-head" role="row"><span role="columnheader">Harness</span><span role="columnheader">Invoke</span><span role="columnheader">Lifecycle</span></div>
-          <div class="matrix-row" role="row"><strong role="cell">Claude Code</strong><code role="cell">/project-context</code><span role="cell">active gate</span></div>
-          <div class="matrix-row" role="row"><strong role="cell">Codex</strong><code role="cell">$project-context</code><span role="cell">active gate</span></div>
-          <div class="matrix-row" role="row"><strong role="cell">Pi</strong><code role="cell">/skill:project-context</code><span role="cell">observe</span></div>
-          <div class="matrix-row" role="row"><strong role="cell">OpenClaw</strong><code role="cell">/project-context</code><span role="cell">bootstrap</span></div>
+          <div class="matrix-row matrix-head" role="row"><span role="columnheader">Agent</span><span role="columnheader">Command</span><span role="columnheader">Hooks can</span></div>
+          <div class="matrix-row" role="row"><strong role="cell">Claude Code</strong><code role="cell">/project-context</code><span role="cell">load + remind</span></div>
+          <div class="matrix-row" role="row"><strong role="cell">Codex</strong><code role="cell">$project-context</code><span role="cell">load + remind</span></div>
+          <div class="matrix-row" role="row"><strong role="cell">Pi</strong><code role="cell">/skill:project-context</code><span role="cell">load + check</span></div>
+          <div class="matrix-row" role="row"><strong role="cell">OpenClaw</strong><code role="cell">/project-context</code><span role="cell">load notes</span></div>
         </div>
       </div>
     </section>
 
-    <section class="controls-section" aria-labelledby="controls-title">
-      <div class="controls-grid shell">
-        <header>
-          <p class="utility-label">Choose the boundary</p>
-          <h2 id="controls-title">Strict when you need it. Quiet when you do not.</h2>
-        </header>
-        <div class="control-table">
-          <div class="control-row"><code>repo</code><span>One ledger in one checkout.</span><strong>default storage</strong></div>
-          <div class="control-row"><code>git-common</code><span>One ledger shared across worktrees.</span><strong>clone-wide</strong></div>
-          <div class="control-row"><code>external</code><span>An absolute path you synchronize.</span><strong>user-managed</strong></div>
+    <section class="runtime-section" id="runtime" aria-labelledby="runtime-title">
+      <div class="runtime-heading shell">
+        <p class="utility-label">What runs in a session</p>
+        <h2 id="runtime-title">It does not write after every prompt.</h2>
+        <p>The default setup is manual. Hooks are optional, and hooks never generate notes on their own.</p>
+      </div>
+
+      <div class="runtime-modes shell">
+        <article class="runtime-mode runtime-mode-recommended">
+          <div class="runtime-mode-head"><code>skill-only</code><span>recommended</span></div>
+          <h3>You choose the checkpoint.</h3>
+          <p>Invoke the skill after a milestone, before switching agents, or when leaving unfinished work. One invocation creates one note or an explicit skip.</p>
+          <dl><div><dt>Runs</dt><dd>Only when invoked</dd></div><div><dt>Automatic writes</dt><dd>None</dd></div></dl>
+        </article>
+        <article class="runtime-mode">
+          <div class="runtime-mode-head"><code>hooks + off</code><span>startup help</span></div>
+          <h3>Load notes, do not enforce writes.</h3>
+          <p>Session start can load relevant notes. Prompt hooks keep a small Git baseline, and stop hooks check whether a checkpoint is due. The project log stays untouched.</p>
+          <dl><div><dt>Runs</dt><dd>Session and turn events</dd></div><div><dt>Automatic writes</dt><dd>None</dd></div></dl>
+        </article>
+        <article class="runtime-mode">
+          <div class="runtime-mode-head"><code>changed-work</code><span>reminder</span></div>
+          <h3>Remind me when code changed.</h3>
+          <p>The stop hook compares Git state. If the agent changed files and forgot to checkpoint, supported tools ask it to write one before finishing.</p>
+          <dl><div><dt>Runs</dt><dd>Every completed turn</dd></div><div><dt>Writes</dt><dd>Only when due</dd></div></dl>
+        </article>
+        <article class="runtime-mode">
+          <div class="runtime-mode-head"><code>every-turn</code><span>strict</span></div>
+          <h3>Account for every turn.</h3>
+          <p>Every completed turn needs a note or a reason to skip. This is useful for strict capture, but it is noisy for everyday development.</p>
+          <dl><div><dt>Runs</dt><dd>Every completed turn</dd></div><div><dt>Writes</dt><dd>Note or skip every turn</dd></div></dl>
+        </article>
+      </div>
+
+      <div class="cost-panel shell" aria-labelledby="cost-title">
+        <div class="cost-copy">
+          <p class="utility-label">Token and latency budget</p>
+          <h3 id="cost-title">Stored notes cost nothing until an agent reads them.</h3>
+          <p>Hooks use local Python, Git, and file operations. No background model runs. The limits below are prompt caps, not recurring charges.</p>
         </div>
-        <div class="gate-scale" aria-label="Checkpoint gate options">
-          <div><code>off</code><p>Explicit invocation only.</p></div>
-          <div><code>changed-work</code><p>Checkpoint when Git changed.</p></div>
-          <div><code>every-turn</code><p>Include reasoning-only work.</p></div>
-        </div>
+        <dl class="cost-list">
+          <div><dt>Repo instructions</dt><dd>about 400 tokens</dd></div>
+          <div><dt>Skill when loaded</dt><dd>about 2,300 tokens</dd></div>
+          <div><dt>Session-start notes</dt><dd>up to 2,200 tokens</dd></div>
+          <div><dt>Compaction refresh</dt><dd>up to 1,200 tokens</dd></div>
+          <div><dt>Targeted query</dt><dd>up to 3,000 tokens</dd></div>
+          <div><dt>Notes on disk</dt><dd>0 tokens until retrieved</dd></div>
+          <div><dt>Routine checkpoint</dt><dd>about 150 to 500 output tokens</dd></div>
+          <div><dt>Background model calls</dt><dd>0</dd></div>
+        </dl>
+        <p class="cost-caveat"><strong>Large repo note.</strong> With hooks installed, <code>turn-start</code> currently runs <code>git status --untracked-files=all</code> for each submitted prompt, even when the checkpoint gate is off. Use skill-only mode if you want the lowest possible per-turn overhead.</p>
       </div>
     </section>
 
@@ -225,13 +301,14 @@
       <div class="install-grid shell">
         <div class="install-copy">
           <p class="utility-label utility-label-light">Install</p>
-          <h2 id="install-title">From one command to shared memory.</h2>
-          <p>The bootstrap fetches a pinned release, then the installer keeps one canonical personal copy, exposes it to detected harnesses, and safely merges project-scoped lifecycle adapters.</p>
+          <h2 id="install-title">Install the skill in one command.</h2>
+          <p>This installs the skill and the <code>ctx</code> command. It does not turn on hooks. Initialize each repository where you want shared notes, then add hooks later if you want them.</p>
           <ul>
             <li>Pins version 0.4.0 by default</li>
+            <li>No hooks unless you ask for them</li>
+            <li>Checkpoint enforcement starts off</li>
             <li>Preserves unrelated host settings</li>
-            <li>Backs up existing files before modification</li>
-            <li>Refuses malformed JSON instead of overwriting it</li>
+            <li>Backs up files before changing them</li>
           </ul>
         </div>
 
@@ -259,8 +336,8 @@ ctx doctor</code></pre>
       <div class="closing-grid shell">
         <img src="/assets/mark.svg" alt="" width="96" height="96">
         <div>
-          <p class="utility-label">Keep the thread</p>
-          <h2 id="closing-title">The next agent starts with context, not archaeology.</h2>
+          <p class="utility-label">Keep the handoff</p>
+          <h2 id="closing-title">The next agent starts from your last checkpoint.</h2>
         </div>
         <a class="button button-primary" href="https://github.com/gabros20/project-context">Get project-context <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
       </div>
@@ -270,7 +347,7 @@ ctx doctor</code></pre>
   <footer class="site-footer">
     <div class="footer-grid shell">
       <img src="/assets/logo.svg" alt="project-context" width="240" height="40">
-      <p>Portable, append-only memory for coding agents.</p>
+      <p>One project file that your coding agents can share.</p>
       <nav aria-label="Footer navigation">
         <a href="https://github.com/gabros20/project-context/blob/main/ARCHITECTURE.md">Architecture</a>
         <a href="https://github.com/gabros20/project-context/blob/main/CHANGELOG.md">Changelog</a>

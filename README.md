@@ -1,13 +1,13 @@
 # project-context
 
-`project-context` is a portable, file-based memory layer for coding agents. It lets you move between Claude Code, Codex, Grok, Cursor, Pi, and other harnesses without losing project decisions, failed approaches, verified findings, or the exact point where work stopped.
+`project-context` gives coding agents a shared project notebook. It saves decisions, failed approaches, test results, and unfinished work in one JSONL file so you can switch between Claude Code, Codex, Grok, Cursor, Pi, and other tools without explaining the project again.
 
-Every harness reads and writes the same append-only JSONL ledger. No database, vector store, background model, or hosted service is required.
+Every supported agent reads and writes the same file. There is no database, background model, or hosted service.
 
 [Explore the interactive project overview](https://project-context-mu.vercel.app) or [download the latest release](https://github.com/gabros20/project-context/releases/latest).
 
 > [!NOTE]
-> The design borrows Observational Memory's observation/reflection split, but keeps semantic checkpoints agent-authored so it can work across unrelated agent runtimes.
+> The observation and reflection idea comes from Observational Memory. Here, the coding agent writes each useful checkpoint so unrelated tools can share the same file.
 
 ## Quick start
 
@@ -18,12 +18,12 @@ curl -fsSL https://project-context-mu.vercel.app/install.sh | sh
 
 cd /path/to/your/repository
 ctx init --instructions
-python3 ~/.agent-skills/project-context/scripts/install.py hooks \
-  --hosts auto --scope project --project-root "$PWD"
 ctx doctor
 ```
 
-The bootstrap downloads the pinned `v0.4.0` release into a temporary directory and delegates to the repository's installer. The installer keeps one canonical copy in `~/.agent-skills/project-context`, exposes it through each detected harness's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+This installs the skill and the `ctx` command. It does not install hooks. Start here, then add hooks only if you want automatic startup context or checkpoint reminders.
+
+The bootstrap downloads the pinned `v0.4.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
 
 Windows PowerShell:
 
@@ -37,13 +37,42 @@ If `ctx` is not found after installation, add the launcher directory to your she
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-If automatic detection finds no host, replace `--hosts auto` with a comma-separated selection such as `--hosts claude,codex`, or use `--hosts all`.
+If automatic detection finds no agent tool, replace `--hosts auto` with a comma-separated selection such as `--hosts claude,codex`, or use `--hosts all`.
+
+## What you get
+
+- **A handoff that survives the chat.** Run the skill before switching tools or ending a session. The next agent can see what changed, why it changed, what failed, what passed, and what remains.
+- **One local file.** Memory lives in `.agent/PROJECT_CONTEXT.jsonl`. You can read it, review it in Git, ignore it, or place it in Git's common directory for shared worktrees.
+- **No automatic transcript logging.** The project stores useful engineering conclusions, not every prompt, command, or tool call.
+- **Targeted recall.** Agents can retrieve notes for one scope or file instead of loading the complete history.
+- **Optional hooks.** Hooks can load recent memory at session start and remind an agent to checkpoint. They never call a background model or write an observation by themselves.
+- **The same format across ten agent tools.** Host-specific adapters are replaceable. The JSONL format and `ctx` command stay the same.
+
+## When it runs and what it costs
+
+The default setup is skill-only. Nothing runs on every prompt unless you install hooks.
+
+| Setup | What runs | When the ledger is written |
+|---|---|---|
+| Skill installed, repo not initialized | Nothing | Never |
+| Skill-only | The skill runs when you invoke it | Once per invocation, or it records an explicit skip |
+| Hooks with gate `off` | Startup loading plus local prompt and stop checks | Never automatically |
+| Hooks with `changed-work` | A Git baseline at prompt start and a check at completion | The agent is reminded when Git changed and no checkpoint exists |
+| Hooks with `every-turn` | A check after every completed turn | Every turn needs a checkpoint or explicit skip |
+
+Hooks run local Python, Git, and file operations. They do not make their own model request. With hooks installed, session start can inject up to 2,200 tokens of relevant memory. A compaction refresh is capped at 1,200 tokens. An explicit targeted query is capped at 3,000 tokens. Stored entries use no model tokens until an agent retrieves them.
+
+Loading the full skill is roughly 2,300 input tokens. The repository instruction block is roughly 400 tokens. A routine checkpoint is usually 100 to 300 words, or roughly 150 to 500 generated tokens including its structured fields. These are approximate numbers because `ctx` estimates tokens from character count rather than using a tokenizer.
+
+One latency tradeoff is worth knowing. The current `turn-start` hook runs `git rev-parse` and `git status --untracked-files=all` on each submitted prompt, even when the checkpoint gate is `off`. That is usually quick, but a large repository with many untracked files may notice it. Use skill-only mode for the lowest overhead.
+
+Recommended starting point: use skill-only mode and invoke `project-context` after a meaningful milestone, before changing agent tools, or when leaving unfinished work. Add the `changed-work` gate if you often forget. `every-turn` is meant for strict capture and will feel noisy in normal development.
 
 ## Use it from an agent
 
-Invoke the skill without additional instructions to checkpoint the current session. The agent reviews its work, chooses an observation, handoff, or reflection, and appends the appropriate durable record.
+Invoke the skill without additional instructions to save the useful parts of the current session. The agent chooses an observation, handoff, or reflection and appends one record.
 
-| Harness | Invocation |
+| Agent tool | Invocation |
 |---|---|
 | Claude Code | `/project-context` |
 | Codex | `$project-context` |
@@ -74,11 +103,11 @@ python3 ~/.agent-skills/project-context/scripts/install.py status \
 ## How it works
 
 ```text
-Claude / Codex / Grok / Cursor / Pi / other harness
+Claude / Codex / Grok / Cursor / Pi / other agent
                          │
                          ▼
               project-context skill
-              chooses semantic content
+               writes a useful note
                          │
                          ▼
                        ctx
@@ -86,31 +115,31 @@ Claude / Codex / Grok / Cursor / Pi / other harness
                          │
                          ▼
           .agent/PROJECT_CONTEXT.jsonl
-             append-only shared ledger
+              shared project file
                          │
                          ▼
-        bounded scope/path-aware retrieval
+          query by scope or file path
                          │
                          ▼
-              next session or harness
+               next session or agent
 ```
 
 The ledger uses three record types:
 
 | Record | Purpose |
 |---|---|
-| Observation | One coherent unit of durable work: outcome, rationale, attempts, learnings, changes, and verification. |
-| Handoff | The continuation frontier for unfinished or non-obvious work. |
-| Reflection | A scope-aware consolidation of older records without rewriting or deleting history. |
+| Observation | One completed unit of work: what changed, why, what failed, and what the tests showed. |
+| Handoff | The current state and exact next steps for unfinished work. |
+| Reflection | A current summary of older notes for one part of the project. The original entries remain unchanged. |
 
-Host adapters only translate native skill discovery and lifecycle events into `ctx` operations. The memory format and retrieval behavior remain host-independent.
+Each adapter connects an agent tool's own skill and hook system to `ctx`. Every agent still reads and writes the same JSONL format.
 
 ## Everyday commands
 
 | Command | Purpose |
 |---|---|
-| `ctx startup` | Render bounded startup memory. |
-| `ctx context --scope auth` | Retrieve a subsystem's reflection and relevant frontier. |
+| `ctx startup` | Load the most relevant notes for a new session. |
+| `ctx context --scope auth` | Retrieve current and recent authentication notes. |
 | `ctx context --path src/auth/session.ts` | Retrieve memory related to a path. |
 | `ctx context --scope auth --explain` | Show why each record was selected. |
 | `ctx decisions --scope auth` | Review decisions and rationale. |
@@ -122,7 +151,7 @@ Host adapters only translate native skill discovery and lifecycle events into `c
 | `ctx stats` | Show record and reflection statistics. |
 | `ctx doctor` | Inspect repository, storage, adapters, invocation, and activation status. |
 
-Agents normally create entries through the skill. For direct CLI use, pass semantic JSON:
+Agents normally create entries through the skill. For direct CLI use, pass structured JSON:
 
 ```bash
 printf '%s\n' '{
@@ -137,7 +166,7 @@ See [the complete observation example](examples/observation.json) and [reflectio
 
 ## Storage
 
-`ctx init` makes the sharing boundary explicit:
+`ctx init` lets you choose where the file lives:
 
 | Mode | Ledger location | Best for |
 |---|---|---|
@@ -153,16 +182,16 @@ ctx init --storage external --storage-path /absolute/path/context.jsonl --instru
 ctx init --storage repo --tracking ignored --instructions
 ```
 
-Repository storage has an independent tracking policy: `unmanaged` (default), `ignored`, or `versioned`. Separate clones and machines still require Git or another synchronization mechanism; `project-context` does not silently sync data.
+Repository storage has three tracking options: `unmanaged` (default), `ignored`, or `versioned`. Separate clones and machines still need Git or another way to synchronize the file. `project-context` does not sync data by itself.
 
-## Optional checkpoint enforcement
+## Optional checkpoint reminders
 
-Lifecycle adapters can detect when a session reaches a completion boundary without a durable checkpoint.
+Hooks can notice when an agent finishes a turn without saving a checkpoint.
 
 | Gate | Behavior |
 |---|---|
-| `off` | No Stop gate; explicit skill invocation drives checkpointing. Default. |
-| `changed-work` | Request a checkpoint when Git state changed during the turn. |
+| `off` | Never require a checkpoint. Invoke the skill yourself. This is the default. |
+| `changed-work` | Ask for a checkpoint when Git changed during the turn. |
 | `every-turn` | Require an append or explicit skip after every completed turn, including reasoning-only work. |
 
 ```bash
@@ -171,11 +200,11 @@ ctx due --json
 ctx skip --agent codex --reason "Formatting-only; no durable project knowledge"
 ```
 
-Checkpoint enforcement degrades according to each harness's actual hook capabilities. Some adapters can block or continue a turn; others can only inject context or observe lifecycle boundaries. See the [host capability matrix](references/hooks.md).
+Agent tools expose different hook controls. Some can pause completion and ask for a checkpoint. Others can only load notes or report that a checkpoint is due. See the [agent support table](references/hooks.md).
 
 ## Installation and safety
 
-Project-scoped lifecycle installation is the recommended default:
+Add hooks to one project:
 
 ```bash
 python3 ~/.agent-skills/project-context/scripts/install.py hooks \
@@ -193,7 +222,7 @@ The installer:
 
 - refuses malformed or non-object JSON configuration;
 - preserves unrelated host settings and hook groups;
-- creates a stable `*.project-context.bak` before first modification;
+- creates a stable `*.project-context.bak` before the first change;
 - writes atomically and is idempotent;
 - never lets project scope modify user-level hooks;
 - reports host trust or plugin activation that still requires user action.
@@ -202,19 +231,19 @@ See [INSTALL.md](INSTALL.md) for paths, scope rules, activation details, and the
 
 ## What belongs in memory
 
-Record durable project knowledge: behavior changes, architectural decisions, important constraints, debugging discoveries, failed approaches, verification, blockers, and continuation state.
+Record project knowledge another developer would need: behavior changes, architectural decisions, constraints, debugging discoveries, failed approaches, test results, blockers, and next steps.
 
 Do not use the ledger for tool-call narration, entire transcripts, large raw outputs, secrets, credentials, tokens, private keys, or `.env` contents. Store safe conclusions and concise evidence instead.
 
 ## Design documentation
 
-- [Architecture](ARCHITECTURE.md) — system boundaries, lifecycle model, retrieval, and concurrency.
-- [ADR-001](docs/decisions/001-portable-observational-ledger.md) — why the project uses an agent-authored ledger inspired by Observational Memory.
-- [Protocol](references/protocol.md) — record semantics, validation, supersession, and reflection coverage.
-- [Retrieval](references/retrieval.md) — scope/path selection and token budgeting.
-- [Logging policy](references/logging-policy.md) — what to preserve and what to omit.
-- [Host sources](references/hosts.md) — first-party compatibility evidence.
-- [Changelog](CHANGELOG.md) — release history.
+- [Architecture](ARCHITECTURE.md): system boundaries, hooks, retrieval, and concurrency.
+- [ADR-001](docs/decisions/001-portable-observational-ledger.md): why the project uses an agent-written log inspired by Observational Memory.
+- [Protocol](references/protocol.md): record fields, validation, corrections, and reflection coverage.
+- [Retrieval](references/retrieval.md): scope and path queries plus token budgets.
+- [Logging policy](references/logging-policy.md): what to save and what to leave out.
+- [Agent sources](references/hosts.md): first-party compatibility evidence.
+- [Changelog](CHANGELOG.md): release history.
 
 ## Development
 

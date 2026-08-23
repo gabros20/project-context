@@ -20,4 +20,4 @@ The three promoted findings are resolved. Desktop and mobile compositions remain
 
 ## Hero refinement
 
-The desktop headline scale was reduced and the hero's top inset tightened so the thesis and ledger begin as one composition. The ledger now explains append order with a finite, one-shot entry sequence; it does not loop or keep readable data in motion. Reduced-motion users receive the complete static ledger.
+The desktop headline scale was reduced and the hero's top inset tightened so the thesis and ledger begin as one composition. The ledger explains append order on an 8-second loop with a settled pause and content-only fade before every reset. It returns to a complete static state while off-screen or the tab is hidden, restarts on re-entry, and stays permanently static for reduced-motion users.

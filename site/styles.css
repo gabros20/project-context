@@ -395,51 +395,55 @@ a {
   padding: 1.25rem;
 }
 
-.motion-ready .hero-ledger .ledger-entry,
-.motion-ready .hero-ledger .ledger-caret {
+.motion-ready .hero-ledger.is-animating .ledger-entry,
+.motion-ready .hero-ledger.is-animating .ledger-caret {
   opacity: 0;
   transform: translateY(0.75rem);
 }
 
-.motion-ready .hero-ledger .ledger-entry::before {
+.motion-ready .hero-ledger.is-animating .ledger-stream {
+  animation: ledger-stream-cycle 8s linear both;
+}
+
+.motion-ready .hero-ledger.is-animating .ledger-entry::before {
   opacity: 0;
   transform: scaleY(0.35);
   transform-origin: center top;
 }
 
-.motion-ready .hero-ledger .live-status i {
+.motion-ready .hero-ledger.is-animating .live-status i {
   animation: ledger-live 1.2s var(--ease-in-out) 0.2s 3 both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-observation {
+.motion-ready .hero-ledger.is-animating .ledger-entry-observation {
   animation: ledger-entry-in 0.55s var(--ease-out) 0.35s both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-observation::before {
+.motion-ready .hero-ledger.is-animating .ledger-entry-observation::before {
   animation: ledger-spine-in 0.5s var(--ease-out) 0.43s both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-attempt {
+.motion-ready .hero-ledger.is-animating .ledger-entry-attempt {
   animation: ledger-entry-in 0.55s var(--ease-out) 1.2s both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-attempt::before {
+.motion-ready .hero-ledger.is-animating .ledger-entry-attempt::before {
   animation: ledger-spine-in 0.5s var(--ease-out) 1.28s both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-handoff {
+.motion-ready .hero-ledger.is-animating .ledger-entry-handoff {
   animation: ledger-entry-in 0.55s var(--ease-out) 2.05s both;
 }
 
-.motion-ready .hero-ledger .ledger-entry-handoff::before {
+.motion-ready .hero-ledger.is-animating .ledger-entry-handoff::before {
   animation: ledger-spine-in 0.5s var(--ease-out) 2.13s both;
 }
 
-.motion-ready .hero-ledger .ledger-caret {
+.motion-ready .hero-ledger.is-animating .ledger-caret {
   animation: ledger-entry-in 0.55s var(--ease-out) 2.9s both;
 }
 
-.motion-ready .hero-ledger .ledger-caret span {
+.motion-ready .hero-ledger.is-animating .ledger-caret span {
   animation: ledger-caret-pulse 0.8s linear 3.35s 3 both;
 }
 
@@ -461,6 +465,11 @@ a {
 @keyframes ledger-caret-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.2; }
+}
+
+@keyframes ledger-stream-cycle {
+  0%, 88% { opacity: 1; }
+  95%, 100% { opacity: 0; }
 }
 
 .ledger-caret span {
@@ -1699,17 +1708,22 @@ a {
     scroll-behavior: auto;
   }
 
-  .motion-ready .hero-ledger .ledger-entry,
-  .motion-ready .hero-ledger .ledger-caret,
-  .motion-ready .hero-ledger .ledger-entry::before {
+  .motion-ready .hero-ledger.is-animating .ledger-entry,
+  .motion-ready .hero-ledger.is-animating .ledger-caret,
+  .motion-ready .hero-ledger.is-animating .ledger-entry::before {
     animation: none;
     opacity: 1;
     transform: none;
   }
 
-  .motion-ready .hero-ledger .live-status i,
-  .motion-ready .hero-ledger .ledger-caret span {
+  .motion-ready .hero-ledger.is-animating .live-status i,
+  .motion-ready .hero-ledger.is-animating .ledger-caret span {
     animation: none;
+  }
+
+  .motion-ready .hero-ledger.is-animating .ledger-stream {
+    animation: none;
+    opacity: 1;
   }
 
   .skip-link,

@@ -173,11 +173,11 @@ Use the Lucide system at 18px with its native 2px rounded stroke. Vendor only th
 
 ## Motion
 
-Motion frequency is rare and its named purpose is **explanation**. The hero ledger appends its three records once on load, then settles. The relay plays once when it first enters view and can be replayed with a real button.
+Motion frequency is rare and its named purpose is **explanation**. The hero ledger appends its three records on an 8-second loop with a settled reading pause and a content-only fade before reset. It returns to a complete static state while off-screen or the tab is hidden, then restarts on re-entry. The relay plays once when it first enters view and can be replayed with a real button.
 
 - Use CSS animations for the predetermined ledger append and packet paths, with JavaScript limited to restarting the relay's grouped sequence.
 - Animate only `transform` and `opacity`.
 - Entrances use `cubic-bezier(0.23, 1, 0.32, 1)`; on-screen packet movement uses `cubic-bezier(0.77, 0, 0.175, 1)`; constant connector progress is linear.
-- UI hover/press feedback stays between 100–180ms. The explanatory sequence may run for 7 seconds because it carries a four-stage mental model.
+- UI hover/press feedback stays between 100–180ms. Explanatory sequences may run longer because they carry a staged mental model; every loop must include a static reading pause.
 - Under `prefers-reduced-motion: reduce`, remove packet travel and position changes. Show every stage in its final state with a 200ms opacity transition at most.
 - Hover motion is gated behind `(hover: hover) and (pointer: fine)`.

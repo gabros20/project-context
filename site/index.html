@@ -14,8 +14,8 @@
   <link rel="canonical" href="https://project-context-mu.vercel.app">
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=2">
-  <script src="/script.js?v=1" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=3">
+  <script src="/script.js?v=3" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -52,27 +52,29 @@
           </dl>
         </div>
 
-        <div class="hero-ledger" aria-label="Example project context ledger">
+        <div class="hero-ledger is-animating" aria-label="Example project context ledger">
           <div class="ledger-topline">
             <span>PROJECT_CONTEXT.jsonl</span>
             <span class="live-status"><i aria-hidden="true"></i> shared</span>
           </div>
-          <div class="ledger-entry ledger-entry-observation">
-            <div class="entry-meta"><span>10:42:07</span><span>observation</span></div>
-            <p>Refresh-token concurrency requires bounded previous-token grace.</p>
-            <code>scope: auth · verified: 14 tests</code>
+          <div class="ledger-stream">
+            <div class="ledger-entry ledger-entry-observation">
+              <div class="entry-meta"><span>10:42:07</span><span>observation</span></div>
+              <p>Refresh-token concurrency requires bounded previous-token grace.</p>
+              <code>scope: auth · verified: 14 tests</code>
+            </div>
+            <div class="ledger-entry ledger-entry-attempt">
+              <div class="entry-meta"><span>10:44:31</span><span>attempt</span></div>
+              <p>Immediate invalidation rejected legitimate concurrent requests.</p>
+              <code>outcome: failed · learning preserved</code>
+            </div>
+            <div class="ledger-entry ledger-entry-handoff">
+              <div class="entry-meta"><span>11:18:54</span><span>handoff</span></div>
+              <p>Confirm shared-storage strategy for horizontally scaled workers.</p>
+              <code>next: inspect deployment topology</code>
+            </div>
+            <div class="ledger-caret" aria-hidden="true"><span></span> append-only</div>
           </div>
-          <div class="ledger-entry ledger-entry-attempt">
-            <div class="entry-meta"><span>10:44:31</span><span>attempt</span></div>
-            <p>Immediate invalidation rejected legitimate concurrent requests.</p>
-            <code>outcome: failed · learning preserved</code>
-          </div>
-          <div class="ledger-entry ledger-entry-handoff">
-            <div class="entry-meta"><span>11:18:54</span><span>handoff</span></div>
-            <p>Confirm shared-storage strategy for horizontally scaled workers.</p>
-            <code>next: inspect deployment topology</code>
-          </div>
-          <div class="ledger-caret" aria-hidden="true"><span></span> append-only</div>
         </div>
       </div>
 

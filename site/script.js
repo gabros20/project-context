@@ -1,4 +1,5 @@
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const heroLedger = document.querySelector(".hero-ledger");
 const relay = document.querySelector("[data-relay]");
 const replay = document.querySelector("[data-replay]");
 const relayStep = document.querySelector(".relay-step");
@@ -12,6 +13,18 @@ const stages = [
 ];
 
 let relayTimers = [];
+
+const restartHeroLedger = () => {
+  if (!heroLedger || reduceMotion.matches || document.hidden) return;
+
+  const bounds = heroLedger.getBoundingClientRect();
+  const isVisible = bounds.bottom > 0 && bounds.top < window.innerHeight;
+  if (!isVisible) return;
+
+  heroLedger.classList.remove("is-animating");
+  void heroLedger.offsetWidth;
+  heroLedger.classList.add("is-animating");
+};
 
 const clearRelayTimers = () => {
   relayTimers.forEach(window.clearTimeout);
@@ -37,6 +50,31 @@ const runRelay = () => {
 };
 
 document.documentElement.classList.add("motion-ready");
+
+if (heroLedger && !reduceMotion.matches) {
+  window.setInterval(restartHeroLedger, 8000);
+
+  const heroLedgerObserver = new IntersectionObserver((entries) => {
+    const isVisible = entries.some((entry) => entry.isIntersecting);
+    if (isVisible) {
+      if (!heroLedger.classList.contains("is-animating")) restartHeroLedger();
+      return;
+    }
+
+    heroLedger.classList.remove("is-animating");
+  }, { threshold: 0.15 });
+
+  heroLedgerObserver.observe(heroLedger);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      heroLedger.classList.remove("is-animating");
+      return;
+    }
+
+    restartHeroLedger();
+  });
+}
 
 if (reduceMotion.matches) {
   showStage({ step: "All 4 stages", caption: "Observe, append, reflect, and resume" });

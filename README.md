@@ -4,7 +4,7 @@
 
 Every harness reads and writes the same append-only JSONL ledger. No database, vector store, background model, or hosted service is required.
 
-[Explore the interactive project overview](https://project-context-mu.vercel.app) to see the observe → append → reflect → resume flow.
+[Explore the interactive project overview](https://project-context-mu.vercel.app) or [download the latest release](https://github.com/gabros20/project-context/releases/latest).
 
 > [!NOTE]
 > The design borrows Observational Memory's observation/reflection split, but keeps semantic checkpoints agent-authored so it can work across unrelated agent runtimes.
@@ -14,9 +14,7 @@ Every harness reads and writes the same append-only JSONL ledger. No database, v
 Requirements: Python 3.10+ and Git.
 
 ```bash
-git clone https://github.com/gabros20/project-context.git
-cd project-context
-python3 scripts/install.py install --hosts auto
+curl -fsSL https://project-context-mu.vercel.app/install.sh | sh
 
 cd /path/to/your/repository
 ctx init --instructions
@@ -25,7 +23,13 @@ python3 ~/.agent-skills/project-context/scripts/install.py hooks \
 ctx doctor
 ```
 
-The installer keeps one canonical copy in `~/.agent-skills/project-context`, exposes it through each detected harness's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+The bootstrap downloads the pinned `v0.4.0` release into a temporary directory and delegates to the repository's installer. The installer keeps one canonical copy in `~/.agent-skills/project-context`, exposes it through each detected harness's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+
+Windows PowerShell:
+
+```powershell
+irm https://project-context-mu.vercel.app/install.ps1 | iex
+```
 
 If `ctx` is not found after installation, add the launcher directory to your shell path:
 
@@ -218,8 +222,10 @@ The runtime and installer use only the Python standard library.
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 -m py_compile scripts/ctx.py scripts/install.py
+python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 git diff --check
 ```
 
 Current package version: `0.4.0`. Ledger protocol version: `1`.
+
+Maintainers: see [RELEASING.md](RELEASING.md) for the signed-tag release process.

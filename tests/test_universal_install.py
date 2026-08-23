@@ -50,6 +50,17 @@ class UniversalInstallTests(unittest.TestCase):
             self.assertIn("trust",p.stdout.lower())
             self.assertIn('from "node:os"', (repo/"hooks/project-context/handler.js").read_text())
 
+    def test_user_install_copies_package_without_repository_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = pathlib.Path(td) / "home"
+            home.mkdir()
+            run_install(["install", "--hosts", "all"], home)
+            canonical = home / ".agent-skills" / "project-context"
+            self.assertTrue((canonical / "SKILL.md").exists())
+            self.assertTrue((home / ".local" / "bin" / "ctx").exists())
+            self.assertFalse((canonical / ".git").exists())
+            self.assertFalse((canonical / ".github").exists())
+
     def test_project_install_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             base=pathlib.Path(td); home=base/"home"; home.mkdir(); repo=self.repo(td)

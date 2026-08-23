@@ -4,6 +4,14 @@ This is a plain download bundle. The actual Agent Skill is inside `project-conte
 
 ## Quick start
 
+From any directory with Python 3.10+ and Git:
+
+```bash
+curl -fsSL https://project-context-mu.vercel.app/install.sh | sh
+```
+
+If you already downloaded and extracted this release bundle:
+
 ```bash
 cd project-context-v0.4.0
 python3 scripts/install.py install --hosts auto

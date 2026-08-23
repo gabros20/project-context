@@ -154,7 +154,21 @@ def copy_package(force: bool = False) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists() and force:
         shutil.rmtree(dst)
-    shutil.copytree(src, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
+    shutil.copytree(
+        src,
+        dst,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            ".DS_Store",
+            ".git",
+            ".github",
+            ".pytest_cache",
+            ".vercel",
+            ".env*",
+        ),
+    )
     for script in (dst / "scripts").glob("*.py"):
         try:
             script.chmod(script.stat().st_mode | stat.S_IXUSR)

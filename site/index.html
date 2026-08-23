@@ -225,9 +225,10 @@
       <div class="install-grid shell">
         <div class="install-copy">
           <p class="utility-label utility-label-light">Install</p>
-          <h2 id="install-title">From clone to shared memory in minutes.</h2>
-          <p>The installer keeps one canonical personal copy, exposes it to detected harnesses, and safely merges project-scoped lifecycle adapters.</p>
+          <h2 id="install-title">From one command to shared memory.</h2>
+          <p>The bootstrap fetches a pinned release, then the installer keeps one canonical personal copy, exposes it to detected harnesses, and safely merges project-scoped lifecycle adapters.</p>
           <ul>
+            <li>Pins version 0.4.0 by default</li>
             <li>Preserves unrelated host settings</li>
             <li>Backs up existing files before modification</li>
             <li>Refuses malformed JSON instead of overwriting it</li>
@@ -236,10 +237,12 @@
 
         <div class="command-stack">
           <div class="command-block">
-            <div class="command-head"><span>Install the skill</span><button type="button" data-copy="install-command">Copy</button></div>
-            <pre id="install-command"><code>git clone https://github.com/gabros20/project-context.git
-cd project-context
-python3 scripts/install.py install --hosts auto</code></pre>
+            <div class="command-head"><span>macOS / Linux</span><button type="button" data-copy="install-command">Copy</button></div>
+            <pre id="install-command"><code>curl -fsSL https://project-context-mu.vercel.app/install.sh | sh</code></pre>
+          </div>
+          <div class="command-block">
+            <div class="command-head"><span>Windows PowerShell</span><button type="button" data-copy="install-windows-command">Copy</button></div>
+            <pre id="install-windows-command"><code>irm https://project-context-mu.vercel.app/install.ps1 | iex</code></pre>
           </div>
           <div class="command-block">
             <div class="command-head"><span>Initialize a repository</span><button type="button" data-copy="init-command">Copy</button></div>

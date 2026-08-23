@@ -2,9 +2,46 @@
 
 ## 1. Install the portable skill/runtime
 
-Extract the package, enter `project-context-v0.4.0/`, then run:
+macOS or Linux:
 
 ```bash
+curl -fsSL https://project-context-mu.vercel.app/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://project-context-mu.vercel.app/install.ps1 | iex
+```
+
+The bootstrap downloads the pinned `v0.4.0` release into a temporary directory, invokes the same `scripts/install.py` shipped in that release, and removes the temporary checkout. It requires Python 3.10+ and Git.
+
+Inspect the bootstrap without executing it:
+
+```bash
+curl -fsSL https://project-context-mu.vercel.app/install.sh
+```
+
+Pass installer options after `sh -s --`:
+
+```bash
+curl -fsSL https://project-context-mu.vercel.app/install.sh | \
+  sh -s -- --hosts all --hooks
+```
+
+To deliberately test another tag or branch, set `PROJECT_CONTEXT_VERSION` for the shell receiving the script:
+
+```bash
+curl -fsSL https://project-context-mu.vercel.app/install.sh | \
+  PROJECT_CONTEXT_VERSION=main sh
+```
+
+Manual source installation remains available:
+
+```bash
+git clone --branch v0.4.0 --depth 1 \
+  https://github.com/gabros20/project-context.git
+cd project-context
 python3 scripts/install.py install --hosts auto
 ```
 

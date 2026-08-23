@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify release contract
+        run: python3 scripts/check_release.py "$GITHUB_REF_NAME"
+
+      - name: Validate bootstrap syntax
+        run: sh -n site/install.sh
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Compile Python entry points
+        run: python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
+
+  validate-powershell:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell bootstrap syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "site/install.ps1",
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
+  publish:
+    needs: [test, validate-powershell]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --latest \
+            --generate-notes \
+            --title "project-context ${GITHUB_REF_NAME#v}" \
+            --notes "Portable, append-only project memory for ten coding-agent harnesses. See CHANGELOG.md for the curated protocol and compatibility notes."

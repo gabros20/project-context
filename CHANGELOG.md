@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - 2026-08-22
+## 0.4.0 - 2026-08-23
 
 ### Added
 
@@ -10,6 +10,9 @@
 - Repository, Git-common, and external ledger storage modes with explicit tracking policy.
 - Capability-driven host manifest containing invocation, lifecycle, trust, activation, and evidence metadata.
 - OpenCode `/project-context` command shim, adapter contract tests, concurrency tests, and ADR-001.
+- Version-pinned one-command bootstrap installers for POSIX shells and Windows PowerShell.
+- A tag-triggered, contract-checked GitHub release workflow and maintainer release guide.
+- The responsive project website, SVG identity, and explanatory memory-flow visualizations.
 
 ### Fixed
 

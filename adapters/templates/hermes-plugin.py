@@ -1,4 +1,4 @@
-"""Generated project-context lifecycle plugin."""
+"""Generated project-context lifecycle plugin (hook profile: @@HOOK_PROFILE@@)."""
 import json
 import os
 import subprocess
@@ -17,21 +17,14 @@ def _startup(kwargs):
 
 def on_start(**kwargs): _run("session-start",kwargs)
 def pre_llm_call(is_first_turn=False, **kwargs):
-    _run("turn-start",kwargs)
+@@TURN_START@@
     if is_first_turn:
         text=_startup(kwargs)
         if text: return {"context": text}
     return None
-def pre_verify(coding=False, attempt=0, **kwargs):
-    if not coding or attempt: return None
-    output=_run("stop",kwargs)
-    if not output: return None
-    try: return json.loads(output)
-    except Exception: return None
-def on_end(**kwargs): _run("session-end",kwargs)
+@@FULL_FUNCTIONS@@
 
 def register(ctx):
     ctx.register_hook("on_session_start", on_start)
     ctx.register_hook("pre_llm_call", pre_llm_call)
-    ctx.register_hook("pre_verify", pre_verify)
-    ctx.register_hook("on_session_end", on_end)
+@@FULL_REGISTRATIONS@@

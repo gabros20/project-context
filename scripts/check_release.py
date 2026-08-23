@@ -20,7 +20,7 @@ def match(pattern: str, path: pathlib.Path, label: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", help="release tag, for example v0.4.0")
+    parser.add_argument("tag", help="release tag, for example v0.5.0")
     args = parser.parse_args()
 
     package_version = match(

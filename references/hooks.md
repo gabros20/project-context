@@ -22,6 +22,25 @@ session-end     → close transient session state
 
 Legacy `hooks.stop_check: true` is read as `changed-work`. All adapters delegate the decision to `ctx due`/the normalized Stop handler.
 
+## Hook profiles
+
+The installer separates context recovery from checkpoint enforcement:
+
+| Profile | Lifecycle coverage | Prompt-time cost |
+|---|---|---|
+| `startup-only` | Startup injection and the minimum compaction refresh needed by the host | No project-context prompt process on native session-start hosts. Pi and Hermes use a small in-process callback. Antigravity must keep its `PreInvocation` bridge. |
+| `full` | Startup, turn baseline, compaction tracking, Stop audit, and session end | The host invokes local lifecycle code on prompt and completion boundaries. |
+
+Install or switch a project profile with:
+
+```bash
+python3 ~/.agent-skills/project-context/scripts/install.py hooks \
+  --hosts auto --scope project --project-root "$PWD" \
+  --hook-profile startup-only
+```
+
+`full` is the default for backward compatibility. Profile switching is reconciliatory: the installer removes its own old entries, preserves unrelated hooks, and adds the selected set. A disabled checkpoint gate makes `turn-start` return before Git fingerprinting and runtime-state writes, but the `full` profile still has a prompt hook process. `install.py status` reports the detected profile for each installed adapter.
+
 ## Host adapter matrix
 
 | Host | Explicit invocation | Lifecycle integration | Startup injection | Stop behavior |

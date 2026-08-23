@@ -69,10 +69,44 @@ class UniversalInstallTests(unittest.TestCase):
             first={p:p.read_bytes() for p in files}; run_install(args,home)
             self.assertEqual(first,{p:p.read_bytes() for p in files})
 
+    def test_startup_only_replaces_managed_hooks_and_preserves_unrelated_hooks(self):
+        with tempfile.TemporaryDirectory() as td:
+            base=pathlib.Path(td); home=base/"home"; home.mkdir(); repo=self.repo(td)
+            claude_path=repo/".claude/settings.json"
+            claude_path.parent.mkdir()
+            claude_path.write_text(json.dumps({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo keep-me"}]}]}}))
+            common=["hooks","--hosts","claude,cursor,droid,antigravity","--scope","project","--project-root",str(repo)]
+            run_install(common,home)
+            run_install([*common,"--hook-profile","startup-only"],home)
+
+            claude=json.loads(claude_path.read_text())
+            self.assertIn("SessionStart",claude["hooks"])
+            self.assertNotIn("UserPromptSubmit",claude["hooks"])
+            self.assertEqual(claude["hooks"]["Stop"][0]["hooks"][0]["command"],"echo keep-me")
+            cursor=json.loads((repo/".cursor/hooks.json").read_text())
+            self.assertEqual(set(cursor["hooks"]),{"sessionStart"})
+            droid=json.loads((repo/".factory/hooks.json").read_text())
+            self.assertEqual(set(droid),{"SessionStart"})
+            antigravity=json.loads((repo/".agents/hooks.json").read_text())
+            self.assertEqual(set(antigravity["project-context"]),{"PreInvocation"})
+
+            first={path:path.read_bytes() for path in [claude_path,repo/".cursor/hooks.json",repo/".factory/hooks.json",repo/".agents/hooks.json"]}
+            run_install([*common,"--hook-profile","startup-only"],home)
+            self.assertEqual(first,{path:path.read_bytes() for path in first})
+            status=run_install(["status","--hosts","claude,cursor,droid,antigravity","--scope","project","--project-root",str(repo)],home)
+            self.assertEqual(status.stdout.count("profile=startup-only"),4)
+
+            run_install(common,home)
+            claude=json.loads(claude_path.read_text())
+            self.assertIn("UserPromptSubmit",claude["hooks"])
+            self.assertEqual(claude["hooks"]["Stop"][0]["hooks"][0]["command"],"echo keep-me")
+            self.assertEqual(len(claude["hooks"]["Stop"]),2)
+
     def test_skill_locations_and_manifest_cover_all_hosts(self):
         data=json.loads((ROOT/"adapters/HOSTS.json").read_text())
         self.assertEqual(set(data["hosts"]),set(HOSTS))
-        self.assertEqual(data["version"],"0.4.0")
+        self.assertEqual(data["version"],"0.5.0")
+        self.assertEqual(data["hook_profiles"],["startup-only","full"])
         for host in HOSTS:
             self.assertIn("primary", data["hosts"][host]["invocation"])
             self.assertIn("startup_injection", data["hosts"][host]["lifecycle"])

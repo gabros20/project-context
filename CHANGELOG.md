@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 - 2026-08-23
+
+### Added
+
+- `startup-only` and `full` hook profiles for project and user lifecycle installation.
+- Safe profile switching that replaces project-context-managed hooks while preserving unrelated host configuration.
+- Profile-specific generated adapters for OpenCode, Pi, Hermes, and OpenClaw.
+- ADR-002 documenting the separation between automatic context recovery and checkpoint enforcement.
+
+### Changed
+
+- The bundled skill now prefers `startup-only` when a user asks for hooks without requesting checkpoint reminders.
+- Runtime and website documentation now explain prompt frequency, host exceptions, latency, and token behavior for both profiles.
+- Package version is 0.5.0; ledger protocol remains version 1 and existing logs require no rewrite.
+
+### Fixed
+
+- Session and turn start skip Git fingerprinting when the checkpoint gate is `off`.
+- Gate-off turn start no longer writes transient per-turn state.
+
 ## 0.4.0 - 2026-08-23
 
 ### Added

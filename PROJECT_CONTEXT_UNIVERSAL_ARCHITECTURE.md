@@ -1,4 +1,4 @@
-# Project Context v0.4 — Architecture
+# Project Context v0.5 — Architecture
 
 > Compatibility filename. The normative architecture is [`ARCHITECTURE.md`](ARCHITECTURE.md); new decisions are recorded under `docs/decisions/`.
 
@@ -181,7 +181,7 @@ The protocol is independent of which transport is chosen.
 ## 12. Package layout
 
 ```text
-project-context-v0.4.0/
+project-context-v0.5.0/
 ├── SKILL.md
 ├── README.md
 ├── INSTALL.md

@@ -22,7 +22,7 @@ import uuid
 from typing import Any, Iterable
 
 PROTOCOL_VERSION = 1
-PACKAGE_VERSION = "0.4.0"
+PACKAGE_VERSION = "0.5.0"
 RECORD_TYPES = {"observation", "reflection", "handoff"}
 IMPORTANCE = {"low", "medium", "high", "critical"}
 ATTEMPT_OUTCOMES = {"worked", "failed", "partial", "inconclusive", "abandoned"}
@@ -1283,6 +1283,8 @@ def hook_session_start(host: str, data: dict[str, Any]) -> int:
     session_id = hook_session_id(host, data)
     source = hook_source(data)
     state = read_json(session_state_path(root, session_id), {}) or {}
+    gate = str((cfg.get("checkpoint") or {}).get("stop_gate", "off"))
+    fingerprint = git_fingerprint(root) if gate != "off" else None
     state.update(
         {
             "session_id": session_id,
@@ -1291,11 +1293,12 @@ def hook_session_start(host: str, data: dict[str, Any]) -> int:
             "started_at": state.get("started_at") or utc_now(),
             "last_seen_at": utc_now(),
             "source": source,
-            "session_baseline_fingerprint": state.get("session_baseline_fingerprint") or git_fingerprint(root),
-            "turn_baseline_fingerprint": git_fingerprint(root),
             "turn_started_at": utc_now(),
         }
     )
+    if fingerprint:
+        state["session_baseline_fingerprint"] = state.get("session_baseline_fingerprint") or fingerprint
+        state["turn_baseline_fingerprint"] = fingerprint
     write_json_atomic(session_state_path(root, session_id), state)
     write_json_atomic(active_pointer_path(root, host), {"session_id": session_id, "updated_at": utc_now()})
     if host == "claude":
@@ -1308,10 +1311,12 @@ def hook_session_start(host: str, data: dict[str, Any]) -> int:
 def hook_turn_start(host: str, data: dict[str, Any]) -> int:
     root, cfg = enabled_repo_from_hook(data)
     if not root or not cfg:
-        if host == "cursor":
-            emit_hook_json({"continue": True})
-        elif host == "droid":
-            emit_hook_json({"suppressOutput": True})
+        turn_start_output(host)
+        return 0
+    if str((cfg.get("checkpoint") or {}).get("stop_gate", "off")) == "off":
+        # With no Stop gate there is nothing to compare at turn end. Avoid the
+        # Git status scan and runtime-state writes on every prompt.
+        turn_start_output(host)
         return 0
     session_id = hook_session_id(host, data)
     state_path = session_state_path(root, session_id)
@@ -1335,11 +1340,15 @@ def hook_turn_start(host: str, data: dict[str, Any]) -> int:
     state.pop("skip_reason", None)
     write_json_atomic(state_path, state)
     write_json_atomic(active_pointer_path(root, host), {"session_id": session_id, "updated_at": now})
+    turn_start_output(host)
+    return 0
+
+
+def turn_start_output(host: str) -> None:
     if host == "cursor":
         emit_hook_json({"continue": True})
     elif host == "droid":
         emit_hook_json({"suppressOutput": True})
-    return 0
 
 
 def checkpoint_due(root: pathlib.Path, cfg: dict[str, Any], host: str, data: dict[str, Any]) -> tuple[bool, str]:

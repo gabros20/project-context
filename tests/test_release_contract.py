@@ -19,12 +19,12 @@ class ReleaseContractTests(unittest.TestCase):
         )
 
     def test_current_release_contract(self):
-        proc = self.run_check("v0.4.0")
+        proc = self.run_check("v0.5.0")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("release contract valid: v0.4.0", proc.stdout)
+        self.assertIn("release contract valid: v0.5.0", proc.stdout)
 
     def test_mismatched_tag_is_rejected(self):
-        proc = self.run_check("v0.4.1")
+        proc = self.run_check("v0.5.1")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("does not match package version", proc.stderr)
 

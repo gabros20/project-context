@@ -1,4 +1,4 @@
-# Project Context v0.4 — Architecture
+# Project Context v0.5 — Architecture
 
 ## 1. Objective
 
@@ -166,6 +166,12 @@ Installer invariants:
 
 This avoids a noisy “log every turn” bureaucracy while still allowing strict teams to enable enforcement.
 
+Lifecycle installation has two explicit profiles. `startup-only` installs the minimum events required to load context at session start and recover it after compaction where the host supports that channel. `full` also installs prompt baselines, Stop checks, and session-boundary tracking. `full` remains the compatibility default; users who only want automatic recovery should select `startup-only`.
+
+Profile changes use managed-entry reconciliation. The installer identifies its own `ctx.py hook ... --host ...` commands, removes only those entries, and then installs the selected profile. Unrelated host configuration survives both directions of a profile switch.
+
+At runtime, `turn-start` reads the repository checkpoint configuration before calculating a fingerprint. When `checkpoint.stop_gate` is `off`, it returns the host's neutral response without running `git status` or writing turn state. This keeps existing full-profile installations cheap while `startup-only` removes the prompt hook entirely on hosts with a native startup event. Antigravity retains `PreInvocation` because it has no separate startup injection event.
+
 ## 11. Concurrency and Git
 
 The JSONL is append-only and writes are lock-protected. Records contain Git branch/worktree/HEAD metadata but Git is evidence, not synchronization.
@@ -183,7 +189,7 @@ The protocol is independent of which transport is chosen.
 ## 12. Package layout
 
 ```text
-project-context-v0.4.0/
+project-context-v0.5.0/
 ├── SKILL.md
 ├── README.md
 ├── INSTALL.md

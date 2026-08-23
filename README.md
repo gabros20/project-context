@@ -23,7 +23,7 @@ ctx doctor
 
 This installs the skill and the `ctx` command. It does not install hooks. Start here, then add hooks only if you want automatic startup context or checkpoint reminders.
 
-The bootstrap downloads the pinned `v0.4.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+The bootstrap downloads the pinned `v0.5.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
 
 Windows PowerShell:
 
@@ -56,17 +56,28 @@ The default setup is skill-only. Nothing runs on every prompt unless you install
 |---|---|---|
 | Skill installed, repo not initialized | Nothing | Never |
 | Skill-only | The skill runs when you invoke it | Once per invocation, or it records an explicit skip |
-| Hooks with gate `off` | Startup loading plus local prompt and stop checks | Never automatically |
-| Hooks with `changed-work` | A Git baseline at prompt start and a check at completion | The agent is reminded when Git changed and no checkpoint exists |
-| Hooks with `every-turn` | A check after every completed turn | Every turn needs a checkpoint or explicit skip |
+| `startup-only` hooks | Load relevant notes at session start and after compaction where supported | Never automatically |
+| `full` hooks with gate `off` | Startup loading plus neutral prompt and stop checks | Never automatically |
+| `full` hooks with `changed-work` | A Git baseline at prompt start and a check at completion | The agent is reminded when Git changed and no checkpoint exists |
+| `full` hooks with `every-turn` | A check after every completed turn | Every turn needs a checkpoint or explicit skip |
 
 Hooks run local Python, Git, and file operations. They do not make their own model request. With hooks installed, session start can inject up to 2,200 tokens of relevant memory. A compaction refresh is capped at 1,200 tokens. An explicit targeted query is capped at 3,000 tokens. Stored entries use no model tokens until an agent retrieves them.
 
 Loading the full skill is roughly 2,300 input tokens. The repository instruction block is roughly 400 tokens. A routine checkpoint is usually 100 to 300 words, or roughly 150 to 500 generated tokens including its structured fields. These are approximate numbers because `ctx` estimates tokens from character count rather than using a tokenizer.
 
-One latency tradeoff is worth knowing. The current `turn-start` hook runs `git rev-parse` and `git status --untracked-files=all` on each submitted prompt, even when the checkpoint gate is `off`. That is usually quick, but a large repository with many untracked files may notice it. Use skill-only mode for the lowest overhead.
+Use the `startup-only` hook profile when you want automatic recovery without checkpoint reminders:
 
-Recommended starting point: use skill-only mode and invoke `project-context` after a meaningful milestone, before changing agent tools, or when leaving unfinished work. Add the `changed-work` gate if you often forget. `every-turn` is meant for strict capture and will feel noisy in normal development.
+```bash
+python3 ~/.agent-skills/project-context/scripts/install.py hooks \
+  --hosts auto --scope project --project-root "$PWD" \
+  --hook-profile startup-only
+```
+
+On hosts with a native session-start event, this profile does not launch project-context on each prompt. Pi and Hermes keep an in-process first-turn callback so they can inject memory once. Antigravity is the exception: its only startup injection point is `PreInvocation`, so its small bridge is still called on later invocations, but it does not fingerprint Git.
+
+The `full` profile remains the installer default for compatibility. If its checkpoint gate is `off`, `turn-start` now returns before `git status`, fingerprinting, or runtime-state writes. The host still launches the local hook process on each prompt, so `startup-only` has the lower per-turn latency.
+
+Recommended starting point: use skill-only mode if you prefer complete manual control, or `startup-only` if you want each new agent to recover the notebook automatically. Install the `full` profile and enable `changed-work` if you often forget to save a checkpoint. `every-turn` is meant for strict capture and will feel noisy in normal development.
 
 ## Use it from an agent
 
@@ -208,8 +219,11 @@ Add hooks to one project:
 
 ```bash
 python3 ~/.agent-skills/project-context/scripts/install.py hooks \
-  --hosts auto --scope project --project-root "$PWD"
+  --hosts auto --scope project --project-root "$PWD" \
+  --hook-profile startup-only
 ```
+
+Omit `--hook-profile startup-only` to install the backward-compatible `full` profile with prompt and Stop integration. Re-run the installer with either profile to switch safely; it replaces only project-context's own hook entries.
 
 User-wide installation is explicit:
 
@@ -231,7 +245,7 @@ See [INSTALL.md](INSTALL.md) for paths, scope rules, activation details, and the
 
 ## What belongs in memory
 
-Record project knowledge another developer would need: behavior changes, architectural decisions, constraints, debugging discoveries, failed approaches, test results, blockers, and next steps.
+Record what the next coding agent needs to continue: behavior changes, architectural decisions, constraints, debugging discoveries, failed approaches, test results, blockers, and next steps.
 
 Do not use the ledger for tool-call narration, entire transcripts, large raw outputs, secrets, credentials, tokens, private keys, or `.env` contents. Store safe conclusions and concise evidence instead.
 
@@ -239,6 +253,7 @@ Do not use the ledger for tool-call narration, entire transcripts, large raw out
 
 - [Architecture](ARCHITECTURE.md): system boundaries, hooks, retrieval, and concurrency.
 - [ADR-001](docs/decisions/001-portable-observational-ledger.md): why the project uses an agent-written log inspired by Observational Memory.
+- [ADR-002](docs/decisions/002-startup-only-hook-profile.md): why startup recovery and checkpoint enforcement are separate hook profiles.
 - [Protocol](references/protocol.md): record fields, validation, corrections, and reflection coverage.
 - [Retrieval](references/retrieval.md): scope and path queries plus token budgets.
 - [Logging policy](references/logging-policy.md): what to save and what to leave out.
@@ -255,6 +270,6 @@ python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 git diff --check
 ```
 
-Current package version: `0.4.0`. Ledger protocol version: `1`.
+Current package version: `0.5.0`. Ledger protocol version: `1`.
 
 Maintainers: see [RELEASING.md](RELEASING.md) for the signed-tag release process.

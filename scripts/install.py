@@ -23,9 +23,10 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
-PACKAGE_VERSION = "0.4.0"
+PACKAGE_VERSION = "0.5.0"
 SKILL_NAME = "project-context"
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+HOOK_PROFILES = ("full", "startup-only")
 
 
 def load_host_manifest() -> dict[str, Any]:
@@ -299,113 +300,188 @@ def group(command: str, *, matcher: str | None = None, timeout: int = 10, **extr
     return result
 
 
-def command_in_groups(groups: list[Any], command: str) -> bool:
-    for g in groups:
-        if isinstance(g, dict):
-            for h in g.get("hooks", []) or []:
-                if isinstance(h, dict) and h.get("command") == command:
-                    return True
-    return False
+def managed_command_event(value: Any, host_name: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = shlex.split(value)
+    except ValueError:
+        return None
+    for index, part in enumerate(parts[:-1]):
+        if pathlib.Path(part).name != "ctx.py" or parts[index + 1] != "hook":
+            continue
+        try:
+            if parts[parts.index("--host", index + 2) + 1] == host_name:
+                return parts[index + 2]
+        except (ValueError, IndexError):
+            return None
+    return None
 
 
-def merge_group_hooks(config: dict[str, Any], additions: dict[str, list[dict[str, Any]]], wrapped: bool = True) -> bool:
+def is_managed_command(value: Any, host_name: str) -> bool:
+    return managed_command_event(value, host_name) is not None
+
+
+def strip_managed_group_hooks(target: dict[str, Any], host_name: str) -> None:
+    for event in list(target):
+        groups = target[event]
+        if not isinstance(groups, list):
+            continue
+        kept_groups: list[Any] = []
+        for item in groups:
+            if not isinstance(item, dict) or not isinstance(item.get("hooks"), list):
+                kept_groups.append(item)
+                continue
+            kept_handlers = [
+                handler for handler in item["hooks"]
+                if not (isinstance(handler, dict) and is_managed_command(handler.get("command"), host_name))
+            ]
+            if kept_handlers:
+                updated = dict(item)
+                updated["hooks"] = kept_handlers
+                kept_groups.append(updated)
+        if kept_groups:
+            target[event] = kept_groups
+        else:
+            target.pop(event)
+
+
+def reconcile_group_hooks(
+    config: dict[str, Any],
+    additions: dict[str, list[dict[str, Any]]],
+    host_name: str,
+    wrapped: bool = True,
+) -> bool:
+    before = json.dumps(config, ensure_ascii=False, sort_keys=True)
     target = config.setdefault("hooks", {}) if wrapped else config
     if not isinstance(target, dict):
         raise RuntimeError("Existing hooks value is not a JSON object")
-    changed = False
+    strip_managed_group_hooks(target, host_name)
     for event, groups in additions.items():
         existing = target.setdefault(event, [])
         if not isinstance(existing, list):
             raise RuntimeError(f"Existing {event} hook value is not an array")
-        for g in groups:
-            cmd = str(((g.get("hooks") or [{}])[0]).get("command", ""))
-            if cmd and command_in_groups(existing, cmd):
-                continue
-            existing.append(g)
-            changed = True
-    return changed
+        existing.extend(groups)
+    return before != json.dumps(config, ensure_ascii=False, sort_keys=True)
 
 
-def claude_codex_hooks(host_name: str) -> dict[str, list[dict[str, Any]]]:
-    return {
+def claude_codex_hooks(host_name: str, profile: str) -> dict[str, list[dict[str, Any]]]:
+    hooks = {
         "SessionStart": [group(shell_command(host_name, "session-start"), matcher="startup|resume|clear|compact", timeout=10,
                                statusMessage="Loading project context", additionalContextLimit=3200)],
-        "UserPromptSubmit": [group(shell_command(host_name, "turn-start"), timeout=5)],
-        "Stop": [group(shell_command(host_name, "stop"), timeout=10)],
-        "SessionEnd": [group(shell_command(host_name, "session-end"), timeout=3)],
     }
+    if profile == "full":
+        hooks.update({
+            "UserPromptSubmit": [group(shell_command(host_name, "turn-start"), timeout=5)],
+            "Stop": [group(shell_command(host_name, "stop"), timeout=10)],
+            "SessionEnd": [group(shell_command(host_name, "session-end"), timeout=3)],
+        })
+    return hooks
 
 
-def grok_hooks() -> dict[str, Any]:
-    return {"hooks": {
+def grok_hooks(profile: str) -> dict[str, Any]:
+    hooks = {
         "SessionStart": [group(shell_command("grok", "session-start"), timeout=10)],
-        "UserPromptSubmit": [group(shell_command("grok", "turn-start"), timeout=5)],
-        "PreCompact": [group(shell_command("grok", "compact-before"), timeout=5)],
-        "PostCompact": [group(shell_command("grok", "compact-after"), timeout=5)],
-        "Stop": [group(shell_command("grok", "stop"), timeout=5)],
-        "SessionEnd": [group(shell_command("grok", "session-end"), timeout=3)],
-    }}
-
-
-def cursor_hooks() -> dict[str, list[dict[str, Any]]]:
-    return {
-        "sessionStart": [{"command": shell_command("cursor", "session-start")}],
-        "beforeSubmitPrompt": [{"command": shell_command("cursor", "turn-start")}],
-        "preCompact": [{"command": shell_command("cursor", "compact-before")}],
-        "stop": [{"command": shell_command("cursor", "stop"), "loop_limit": 2}],
-        "sessionEnd": [{"command": shell_command("cursor", "session-end")}],
     }
+    if profile == "full":
+        hooks.update({
+            "UserPromptSubmit": [group(shell_command("grok", "turn-start"), timeout=5)],
+            "PreCompact": [group(shell_command("grok", "compact-before"), timeout=5)],
+            "PostCompact": [group(shell_command("grok", "compact-after"), timeout=5)],
+            "Stop": [group(shell_command("grok", "stop"), timeout=5)],
+            "SessionEnd": [group(shell_command("grok", "session-end"), timeout=3)],
+        })
+    return {"hooks": hooks}
 
 
-def merge_cursor(config: dict[str, Any]) -> bool:
-    changed = False
+def cursor_hooks(profile: str) -> dict[str, list[dict[str, Any]]]:
+    hooks = {
+        "sessionStart": [{"command": shell_command("cursor", "session-start")}],
+    }
+    if profile == "full":
+        hooks.update({
+            "beforeSubmitPrompt": [{"command": shell_command("cursor", "turn-start")}],
+            "preCompact": [{"command": shell_command("cursor", "compact-before")}],
+            "stop": [{"command": shell_command("cursor", "stop"), "loop_limit": 2}],
+            "sessionEnd": [{"command": shell_command("cursor", "session-end")}],
+        })
+    return hooks
+
+
+def merge_cursor(config: dict[str, Any], profile: str) -> bool:
+    before = json.dumps(config, ensure_ascii=False, sort_keys=True)
     if "version" not in config:
         config["version"] = 1
-        changed = True
     hooks = config.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise RuntimeError("Existing Cursor hooks value is not an object")
-    for event, handlers in cursor_hooks().items():
+    for event in list(hooks):
+        handlers = hooks[event]
+        if not isinstance(handlers, list):
+            continue
+        kept = [
+            handler for handler in handlers
+            if not (isinstance(handler, dict) and is_managed_command(handler.get("command"), "cursor"))
+        ]
+        if kept:
+            hooks[event] = kept
+        else:
+            hooks.pop(event)
+    for event, handlers in cursor_hooks(profile).items():
         existing = hooks.setdefault(event, [])
         if not isinstance(existing, list):
             raise RuntimeError(f"Existing Cursor hooks.{event} is not an array")
-        commands = {h.get("command") for h in existing if isinstance(h, dict)}
-        for h in handlers:
-            if h["command"] not in commands:
-                existing.append(h); changed = True
-    return changed
+        existing.extend(handlers)
+    return before != json.dumps(config, ensure_ascii=False, sort_keys=True)
 
 
-def droid_hooks() -> dict[str, list[dict[str, Any]]]:
-    return {
+def droid_hooks(profile: str) -> dict[str, list[dict[str, Any]]]:
+    hooks = {
         "SessionStart": [group(shell_command("droid", "session-start"), timeout=10)],
-        "UserPromptSubmit": [group(shell_command("droid", "turn-start"), timeout=5)],
-        "PreCompact": [group(shell_command("droid", "compact-before"), timeout=5)],
-        "Stop": [group(shell_command("droid", "stop"), timeout=10)],
-        "SessionEnd": [group(shell_command("droid", "session-end"), timeout=3)],
     }
+    if profile == "full":
+        hooks.update({
+            "UserPromptSubmit": [group(shell_command("droid", "turn-start"), timeout=5)],
+            "PreCompact": [group(shell_command("droid", "compact-before"), timeout=5)],
+            "Stop": [group(shell_command("droid", "stop"), timeout=10)],
+            "SessionEnd": [group(shell_command("droid", "session-end"), timeout=3)],
+        })
+    return hooks
 
 
-def antigravity_hook_definition() -> dict[str, Any]:
-    return {
+def antigravity_hook_definition(profile: str) -> dict[str, Any]:
+    hooks = {
         "PreInvocation": [{"type": "command", "command": shell_command("antigravity", "pre-invocation"), "timeout": 10}],
-        "Stop": [{"type": "command", "command": shell_command("antigravity", "stop"), "timeout": 10}],
     }
+    if profile == "full":
+        hooks["Stop"] = [{"type": "command", "command": shell_command("antigravity", "stop"), "timeout": 10}]
+    return hooks
 
 
-def merge_antigravity(config: dict[str, Any]) -> bool:
-    name = "project-context"
-    wanted = antigravity_hook_definition()
-    existing = config.get(name)
-    if existing == wanted:
+def antigravity_definition_is_managed(value: Any) -> bool:
+    if not isinstance(value, dict):
         return False
-    if existing is not None:
-        # Do not overwrite a different same-name hook. Add a namespaced fallback.
-        name = "project-context-universal"
-        if config.get(name) == wanted:
-            return False
-    config[name] = wanted
-    return True
+    return any(
+        isinstance(handler, dict) and is_managed_command(handler.get("command"), "antigravity")
+        for handlers in value.values() if isinstance(handlers, list)
+        for handler in handlers
+    )
+
+
+def merge_antigravity(config: dict[str, Any], profile: str) -> bool:
+    before = json.dumps(config, ensure_ascii=False, sort_keys=True)
+    wanted = antigravity_hook_definition(profile)
+    primary = "project-context"
+    fallback = "project-context-universal"
+    if antigravity_definition_is_managed(config.get(primary)):
+        config[primary] = wanted
+        if antigravity_definition_is_managed(config.get(fallback)):
+            config.pop(fallback)
+    elif config.get(primary) is None:
+        config[primary] = wanted
+    else:
+        config[fallback] = wanted
+    return before != json.dumps(config, ensure_ascii=False, sort_keys=True)
 
 
 def json_hook_path(host_name: str, scope: str, root: pathlib.Path | None) -> pathlib.Path | None:
@@ -415,27 +491,27 @@ def json_hook_path(host_name: str, scope: str, root: pathlib.Path | None) -> pat
     return manifest_path(lifecycle.get(scope), root)
 
 
-def install_json_host(host_name: str, scope: str, root: pathlib.Path | None) -> pathlib.Path:
+def install_json_host(host_name: str, scope: str, root: pathlib.Path | None, profile: str) -> pathlib.Path:
     path = json_hook_path(host_name, scope, root)
     assert path is not None
     data = read_json(path)
     changed = False
     if host_name in {"claude", "codex"}:
-        changed = merge_group_hooks(data, claude_codex_hooks(host_name), wrapped=True)
+        changed = reconcile_group_hooks(data, claude_codex_hooks(host_name, profile), host_name, wrapped=True)
     elif host_name == "grok":
         # dedicated file owned by project-context, but preserve any user additions in it
-        changed = merge_group_hooks(data, grok_hooks()["hooks"], wrapped=True)
+        changed = reconcile_group_hooks(data, grok_hooks(profile)["hooks"], host_name, wrapped=True)
     elif host_name == "cursor":
-        changed = merge_cursor(data)
+        changed = merge_cursor(data, profile)
     elif host_name == "droid":
-        changed = merge_group_hooks(data, droid_hooks(), wrapped=False)
+        changed = reconcile_group_hooks(data, droid_hooks(profile), host_name, wrapped=False)
     elif host_name == "antigravity":
-        changed = merge_antigravity(data)
+        changed = merge_antigravity(data, profile)
     if changed or not path.exists():
         write_json_if_changed(path, data)
-        print(f"{host_name}: hooks installed -> {path}")
+        print(f"{host_name}: {profile} hooks installed -> {path}")
     else:
-        print(f"{host_name}: hooks already installed -> {path}")
+        print(f"{host_name}: {profile} hooks already installed -> {path}")
     return path
 
 
@@ -459,11 +535,6 @@ def render_adapter_template(name: str, **values: str) -> str:
     return text
 
 
-def inline_opencode_plugin_fallback() -> str:
-    py, ctx = python_exe(), str(runtime_ctx())
-    return f'''// Generated by project-context {PACKAGE_VERSION}.\nimport {{ spawnSync }} from "node:child_process";\nconst PY={js_string(py)}; const CTX={js_string(ctx)};\nfunction run(args, input, cwd) {{ const r=spawnSync(PY,[CTX,...args],{{input:JSON.stringify(input||{{}}),encoding:"utf8",cwd}}); return (r.stdout||"").trim(); }}\nfunction sid(event) {{ return event?.properties?.info?.id || event?.properties?.sessionID || event?.properties?.sessionId || "opencode-runtime"; }}\nexport const ProjectContextPlugin = async ({{ directory, worktree }}) => ({{\n  event: async ({{event}}) => {{\n    const base={{cwd:worktree||directory,session_id:sid(event)}};\n    if(event.type==="session.created") run(["hook","session-start","--host","opencode"],base,directory);\n    if(event.type==="session.idle") run(["hook","stop","--host","opencode"],base,directory);\n    if(event.type==="session.compacted") run(["hook","compact-after","--host","opencode"],base,directory);\n    if(event.type==="session.deleted") run(["hook","session-end","--host","opencode"],base,directory);\n  }},\n  "experimental.session.compacting": async (input, output) => {{\n    run(["hook","compact-before","--host","opencode"],{{cwd:worktree||directory,session_id:input?.sessionID||"opencode-runtime"}},directory);\n    const r=spawnSync(PY,[CTX,"--cwd",worktree||directory,"startup","--compact"],{{encoding:"utf8",cwd:directory}});\n    if(r.status===0 && r.stdout.trim()) output.context.push(r.stdout.trim());\n  }}\n}});\n'''
-
-
 def opencode_command() -> str:
     return '''---
 description: Checkpoint or retrieve shared project context
@@ -475,92 +546,94 @@ Arguments from the user: $ARGUMENTS
 '''
 
 
-def inline_pi_extension_fallback() -> str:
-    py, ctx = python_exe(), str(runtime_ctx())
-    return f'''// Generated by project-context {PACKAGE_VERSION}.\nimport {{ spawnSync }} from "node:child_process";\nexport default function projectContext(pi) {{\n  const PY={js_string(py)}, CTX={js_string(ctx)}; let sessionId=`pi-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`; let injected=false;\n  const run=(event,data,cwd)=>spawnSync(PY,[CTX,"hook",event,"--host","pi"],{{input:JSON.stringify({{cwd,session_id:sessionId,...data}}),encoding:"utf8",cwd}});\n  const startup=(cwd)=>spawnSync(PY,[CTX,"--cwd",cwd,"startup"],{{encoding:"utf8",cwd}});\n  pi.on("session_start", async (event, c) => {{ sessionId=c.sessionManager.getSessionFile?.() || sessionId; run("session-start",{{source:event.reason}},c.cwd); injected=false; }});\n  pi.on("before_agent_start", async (event, c) => {{\n    run("turn-start",{{}},c.cwd);\n    if(!injected) {{ const r=startup(c.cwd); injected=true; if(r.status===0 && r.stdout.trim()) return {{message:{{customType:"project-context",content:r.stdout.trim(),display:false}}}}; }}\n  }});\n  pi.on("session_before_compact", async (_event,c)=>{{ run("compact-before",{{}},c.cwd); }});\n  pi.on("session_compact", async (_event,c)=>{{ run("compact-after",{{}},c.cwd); injected=false; }});\n  pi.on("agent_settled", async (_event,c)=>{{ run("stop",{{}},c.cwd); }});\n  pi.on("session_shutdown", async (_event,c)=>{{ run("session-end",{{}},c.cwd); }});\n}}\n'''
-
-
-def inline_hermes_plugin_fallback() -> dict[str, str]:
-    py, ctx = python_exe(), str(runtime_ctx())
-    plugin_yaml = f'''name: project-context\nversion: "{PACKAGE_VERSION}"\ndescription: Shared append-only project memory lifecycle integration.\n'''
-    pycode = f'''"""Generated project-context lifecycle plugin."""\nimport json, os, subprocess\nPY={py!r}\nCTX={ctx!r}\n\ndef _cwd(kwargs): return kwargs.get("cwd") or os.getcwd()\ndef _run(event, kwargs):\n    payload=dict(kwargs); payload.setdefault("cwd", _cwd(kwargs))\n    p=subprocess.run([PY,CTX,"hook",event,"--host","hermes"],input=json.dumps(payload),text=True,capture_output=True,cwd=_cwd(kwargs))\n    return p.stdout.strip()\ndef _startup(kwargs):\n    p=subprocess.run([PY,CTX,"--cwd",_cwd(kwargs),"startup"],text=True,capture_output=True,cwd=_cwd(kwargs))\n    return p.stdout.strip() if p.returncode==0 else ""\n\ndef on_start(**kwargs): _run("session-start",kwargs)\ndef pre_llm_call(is_first_turn=False, **kwargs):\n    _run("turn-start",kwargs)\n    if is_first_turn:\n        text=_startup(kwargs)\n        if text: return {{"context": text}}\n    return None\ndef pre_verify(coding=False, attempt=0, **kwargs):\n    if not coding or attempt: return None\n    out=_run("stop",kwargs)\n    if not out: return None\n    try: return json.loads(out)\n    except Exception: return None\ndef on_end(**kwargs): _run("session-end",kwargs)\n\ndef register(ctx):\n    ctx.register_hook("on_session_start", on_start)\n    ctx.register_hook("pre_llm_call", pre_llm_call)\n    ctx.register_hook("pre_verify", pre_verify)\n    ctx.register_hook("on_session_end", on_end)\n'''
-    return {"plugin.yaml": plugin_yaml, "__init__.py": pycode}
-
-
-def inline_openclaw_hook_fallback() -> dict[str, str]:
-    py, ctx = python_exe(), str(runtime_ctx())
-    hookmd = '''---\nname: project-context\ndescription: "Inject project-context memory at agent bootstrap and track compaction/session boundaries."\nmetadata:\n  {"openclaw":{"emoji":"🧠","events":["agent:bootstrap","session:compact:before","session:compact:after","command:new","command:reset","session:auto-reset"],"requires":{"bins":["python3"]}}}\n---\n# Project Context\nGenerated lifecycle bridge. Semantic memory remains agent-authored through the project-context skill.\n'''
-    handler = f'''import {{ spawnSync }} from "node:child_process";\nimport {{ writeFileSync, mkdirSync }} from "node:fs";\nimport {{ join }} from "node:path";\nconst PY={js_string(py)}, CTX={js_string(ctx)};\nconst handler=async(event)=>{{\n  const cwd=event?.context?.workspaceDir || process.cwd(); const session_id=event?.sessionKey || event?.context?.sessionId || "openclaw-runtime";\n  const run=(ev)=>spawnSync(PY,[CTX,"hook",ev,"--host","openclaw"],{{input:JSON.stringify({{cwd,session_id}}),encoding:"utf8",cwd}});\n  if(event.type==="agent" && event.action==="bootstrap"){{\n    run("session-start"); const r=spawnSync(PY,[CTX,"--cwd",cwd,"startup"],{{encoding:"utf8",cwd}});\n    if(r.status===0 && r.stdout.trim() && Array.isArray(event.context?.bootstrapFiles)){{\n      const d=join(homedir(),".cache","project-context","openclaw"); mkdirSync(d,{{recursive:true}}); const f=join(d,`${{session_id.replace(/[^A-Za-z0-9_.-]/g,"_")}}.md`); writeFileSync(f,r.stdout); event.context.bootstrapFiles.push(f);\n    }}\n  }}\n  if(event.type==="session" && event.action==="compact:before") run("compact-before");\n  if(event.type==="session" && event.action==="compact:after") run("compact-after");\n  if((event.type==="command" && (event.action==="new"||event.action==="reset")) || (event.type==="session"&&event.action==="auto-reset")) run("session-end");\n}}; export default handler;\n'''
-    handler = handler.replace(
-        'import { join } from "node:path";\n',
-        'import { join } from "node:path";\nimport { homedir } from "node:os";\n',
+def templated_opencode_plugin(profile: str) -> str:
+    full_events = '''    if(event.type==="session.idle") run(["hook","stop","--host","opencode"],base,directory);
+    if(event.type==="session.compacted") run(["hook","compact-after","--host","opencode"],base,directory);
+    if(event.type==="session.deleted") run(["hook","session-end","--host","opencode"],base,directory);''' if profile == "full" else ""
+    compact_before = '    run(["hook","compact-before","--host","opencode"],{cwd:worktree||directory,session_id:input?.sessionID||"opencode-runtime"},directory);' if profile == "full" else ""
+    return render_adapter_template(
+        "opencode-plugin.js", PACKAGE_VERSION=PACKAGE_VERSION,
+        PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
+        HOOK_PROFILE=profile, FULL_EVENT_HANDLERS=full_events, COMPACT_BEFORE=compact_before,
     )
-    return {"HOOK.md": hookmd, "handler.js": handler}
 
 
-def templated_opencode_plugin() -> str:
-    try:
-        return render_adapter_template(
-            "opencode-plugin.js", PACKAGE_VERSION=PACKAGE_VERSION,
-            PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
-        )
-    except RuntimeError:
-        return inline_opencode_plugin_fallback()
+def templated_pi_extension(profile: str) -> str:
+    turn_start = '    run("turn-start",{},c.cwd);' if profile == "full" else ""
+    lifecycle = '''  pi.on("session_before_compact", async (_event,c)=>{ run("compact-before",{},c.cwd); });
+  pi.on("session_compact", async (_event,c)=>{ run("compact-after",{},c.cwd); injected=false; });
+  pi.on("agent_settled", async (_event,c)=>{ run("stop",{},c.cwd); });
+  pi.on("session_shutdown", async (_event,c)=>{ run("session-end",{},c.cwd); });''' if profile == "full" else '  pi.on("session_compact", async (_event,c)=>{ injected=false; });'
+    return render_adapter_template(
+        "pi-extension.ts", PACKAGE_VERSION=PACKAGE_VERSION,
+        PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
+        HOOK_PROFILE=profile, TURN_START=turn_start, LIFECYCLE_HANDLERS=lifecycle,
+    )
 
 
-def templated_pi_extension() -> str:
-    try:
-        return render_adapter_template(
-            "pi-extension.ts", PACKAGE_VERSION=PACKAGE_VERSION,
-            PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),
-        )
-    except RuntimeError:
-        return inline_pi_extension_fallback()
+def templated_hermes_plugin_files(profile: str) -> dict[str, str]:
+    full_functions = '''def pre_verify(coding=False, attempt=0, **kwargs):
+    if not coding or attempt: return None
+    output=_run("stop",kwargs)
+    if not output: return None
+    try: return json.loads(output)
+    except Exception: return None
+def on_end(**kwargs): _run("session-end",kwargs)''' if profile == "full" else ""
+    values = {
+        "PACKAGE_VERSION": PACKAGE_VERSION,
+        "PYTHON": repr(python_exe()),
+        "CTX": repr(str(runtime_ctx())),
+        "HOOK_PROFILE": profile,
+        "TURN_START": '    _run("turn-start",kwargs)' if profile == "full" else "",
+        "FULL_FUNCTIONS": full_functions,
+        "FULL_REGISTRATIONS": '    ctx.register_hook("pre_verify", pre_verify)\n    ctx.register_hook("on_session_end", on_end)' if profile == "full" else "",
+    }
+    return {
+        "plugin.yaml": render_adapter_template("hermes-plugin.yaml", **values),
+        "__init__.py": render_adapter_template("hermes-plugin.py", **values),
+    }
 
 
-def templated_hermes_plugin_files() -> dict[str, str]:
-    values = {"PACKAGE_VERSION": PACKAGE_VERSION, "PYTHON": repr(python_exe()), "CTX": repr(str(runtime_ctx()))}
-    try:
-        return {
-            "plugin.yaml": render_adapter_template("hermes-plugin.yaml", **values),
-            "__init__.py": render_adapter_template("hermes-plugin.py", **values),
-        }
-    except RuntimeError:
-        return inline_hermes_plugin_fallback()
+def templated_openclaw_hook_files(profile: str) -> dict[str, str]:
+    events = ["agent:bootstrap"]
+    full_lifecycle = ""
+    if profile == "full":
+        events.extend(["session:compact:before", "session:compact:after", "command:new", "command:reset", "session:auto-reset"])
+        full_lifecycle = '''  if(event.type==="session" && event.action==="compact:before") run("compact-before");
+  if(event.type==="session" && event.action==="compact:after") run("compact-after");
+  if((event.type==="command" && (event.action==="new"||event.action==="reset")) || (event.type==="session"&&event.action==="auto-reset")) run("session-end");'''
+    values = {
+        "PYTHON": js_string(python_exe()), "CTX": js_string(str(runtime_ctx())),
+        "HOOK_PROFILE": profile, "EVENTS": json.dumps(events, separators=(",", ":")),
+        "FULL_LIFECYCLE": full_lifecycle,
+    }
+    return {
+        "HOOK.md": render_adapter_template("openclaw-HOOK.md", **values),
+        "handler.js": render_adapter_template("openclaw-handler.js", **values),
+    }
 
 
-def templated_openclaw_hook_files() -> dict[str, str]:
-    values = {"PYTHON": js_string(python_exe()), "CTX": js_string(str(runtime_ctx()))}
-    try:
-        return {
-            "HOOK.md": render_adapter_template("openclaw-HOOK.md", **values),
-            "handler.js": render_adapter_template("openclaw-handler.js", **values),
-        }
-    except RuntimeError:
-        return inline_openclaw_hook_fallback()
-
-
-def install_generated_host(host_name: str, scope: str, root: pathlib.Path | None) -> list[pathlib.Path]:
+def install_generated_host(host_name: str, scope: str, root: pathlib.Path | None, profile: str) -> list[pathlib.Path]:
     lifecycle_path = manifest_path(HOST_DATA[host_name]["lifecycle"].get(scope), root)
     if lifecycle_path is None:
         raise RuntimeError(f"No {scope} lifecycle location is documented for {host_name}")
     if host_name == "opencode":
         path = lifecycle_path
         command = (root / ".opencode/commands/project-context.md" if scope == "project" else home() / ".config/opencode/commands/project-context.md")
-        write_generated(path, templated_opencode_plugin()); write_generated(command, opencode_command()); return [path, command]
+        write_generated(path, templated_opencode_plugin(profile)); write_generated(command, opencode_command()); return [path, command]
     if host_name == "pi":
         path = lifecycle_path
-        write_generated(path, templated_pi_extension()); return [path]
+        write_generated(path, templated_pi_extension(profile)); return [path]
     if host_name == "hermes":
         base = lifecycle_path
         out=[]
-        for name,text in templated_hermes_plugin_files().items():
+        for name,text in templated_hermes_plugin_files(profile).items():
             p=base/name; write_generated(p,text); out.append(p)
         return out
     if host_name == "openclaw":
         base = lifecycle_path
         out=[]
-        for name,text in templated_openclaw_hook_files().items():
+        for name,text in templated_openclaw_hook_files(profile).items():
             p=base/name; write_generated(p,text); out.append(p)
         return out
     raise RuntimeError(host_name)
@@ -586,16 +659,16 @@ def maybe_activate(host_name: str) -> None:
         subprocess.run(["openclaw", "hooks", "enable", "project-context"], check=False)
 
 
-def install_hooks(hosts: list[str], scope: str, root: pathlib.Path | None, activate: bool) -> None:
+def install_hooks(hosts: list[str], scope: str, root: pathlib.Path | None, activate: bool, profile: str) -> None:
     if scope == "project" and root is None:
         root = discover_repo()
     for host_name in hosts:
         try:
             if host_name in {"claude","codex","grok","cursor","droid","antigravity"}:
-                paths=[install_json_host(host_name, scope, root)]
+                paths=[install_json_host(host_name, scope, root, profile)]
             else:
-                paths=install_generated_host(host_name, scope, root)
-                print(f"{host_name}: lifecycle adapter -> {', '.join(str(p) for p in paths)}")
+                paths=install_generated_host(host_name, scope, root, profile)
+                print(f"{host_name}: {profile} lifecycle adapter -> {', '.join(str(p) for p in paths)}")
             if activate:
                 maybe_activate(host_name)
             for note in activation_notes(host_name, scope):
@@ -605,6 +678,43 @@ def install_hooks(hosts: list[str], scope: str, root: pathlib.Path | None, activ
 
 
 # ---------- status ----------
+
+def installed_hook_profile(host_name: str, path: pathlib.Path | None) -> str:
+    if not path or not path.exists():
+        return "none"
+    mechanism = str((HOST_DATA[host_name].get("lifecycle") or {}).get("mechanism", ""))
+    if mechanism.startswith("generated"):
+        candidates = [path] if path.is_file() else sorted(item for item in path.iterdir() if item.is_file())
+        for candidate in candidates:
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            match = re.search(r"hook profile: (startup-only|full)", text)
+            if match:
+                return match.group(1)
+        return "unknown"
+    try:
+        data = read_json(path)
+    except RuntimeError:
+        return "invalid"
+    events: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            event = managed_command_event(value.get("command"), host_name)
+            if event:
+                events.append(event)
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(data)
+    if not events:
+        return "unknown"
+    return "full" if any(event not in {"session-start", "pre-invocation"} for event in events) else "startup-only"
 
 def status(hosts: list[str], scope: str, root: pathlib.Path | None) -> None:
     if scope == "project" and root is None:
@@ -618,7 +728,8 @@ def status(hosts: list[str], scope: str, root: pathlib.Path | None) -> None:
         invocation = HOST_DATA[h].get("invocation", {}).get("primary", "unknown")
         trust = " trust-required" if scope == "project" and HOST_DATA[h].get("lifecycle", {}).get("trust_required_project") else ""
         activation = " activation-required" if HOST_DATA[h].get("lifecycle", {}).get("activation_required") else ""
-        print(f"{h:12} skill={'yes' if skill and skill.exists() else 'no ':3} lifecycle={'yes' if hook_path and hook_path.exists() else 'no ':3} invoke={invocation}{trust}{activation}  {hook_path or ''}")
+        profile = installed_hook_profile(h, hook_path)
+        print(f"{h:12} skill={'yes' if skill and skill.exists() else 'no ':3} lifecycle={'yes' if hook_path and hook_path.exists() else 'no ':3} profile={profile:12} invoke={invocation}{trust}{activation}  {hook_path or ''}")
 
 
 def cmd_detect(_args: argparse.Namespace) -> int:
@@ -636,6 +747,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--hosts", default="auto")
     q.add_argument("--force", action="store_true")
     q.add_argument("--hooks", action="store_true", help="also install user/global lifecycle integrations")
+    q.add_argument("--hook-profile", choices=HOOK_PROFILES, default="full",
+                   help="lifecycle coverage when --hooks is used (default: full)")
     q.add_argument("--activate", action="store_true")
 
     for name in ("skills","hooks","status"):
@@ -644,7 +757,10 @@ def build_parser() -> argparse.ArgumentParser:
         q.add_argument("--scope", choices=("user","project"), default="project" if name=="hooks" else "user")
         q.add_argument("--project-root")
         if name=="skills": q.add_argument("--force", action="store_true")
-        if name=="hooks": q.add_argument("--activate", action="store_true")
+        if name=="hooks":
+            q.add_argument("--activate", action="store_true")
+            q.add_argument("--hook-profile", choices=HOOK_PROFILES, default="full",
+                           help="startup-only loads context without prompt/stop hooks; full also tracks turns")
     sub.add_parser("detect")
     return p
 
@@ -657,9 +773,9 @@ def main(argv: list[str] | None=None) -> int:
         root=discover_repo(args.project_root) if getattr(args,"scope",None)=="project" else None
         if args.cmd=="install":
             copy_package(args.force); install_launcher(); install_skills(hosts,"user",None,args.force)
-            if args.hooks: install_hooks(hosts,"user",None,args.activate)
+            if args.hooks: install_hooks(hosts,"user",None,args.activate,args.hook_profile)
         elif args.cmd=="skills": install_skills(hosts,args.scope,root,args.force)
-        elif args.cmd=="hooks": install_hooks(hosts,args.scope,root,args.activate)
+        elif args.cmd=="hooks": install_hooks(hosts,args.scope,root,args.activate,args.hook_profile)
         elif args.cmd=="status": status(hosts,args.scope,root)
         return 0
     except RuntimeError as exc:

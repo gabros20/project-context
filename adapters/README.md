@@ -4,4 +4,4 @@
 
 The adapter layer intentionally contains **no memory semantics**. Every host maps its native lifecycle to `scripts/ctx.py hook <normalized-event> --host <host>` or invokes `ctx startup` for a host-specific injection surface.
 
-Generated adapter files are rendered from `templates/` by `scripts/install.py`; compact inline fallbacks keep already-installed canonical packages usable if a partial package copy loses the templates. Contract tests validate rendered syntax and required lifecycle markers.
+Generated adapter files are rendered from `templates/` by `scripts/install.py`. The renderer selects either the `startup-only` or `full` lifecycle surface without changing the shared memory protocol. Contract tests validate both profiles, rendered syntax, and required lifecycle markers.

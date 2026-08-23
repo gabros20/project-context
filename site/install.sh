@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-DEFAULT_VERSION="v0.4.0"
+DEFAULT_VERSION="v0.5.0"
 REPOSITORY="https://github.com/gabros20/project-context.git"
 version="${PROJECT_CONTEXT_VERSION:-$DEFAULT_VERSION}"
 python_bin="${PROJECT_CONTEXT_PYTHON:-python3}"

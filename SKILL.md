@@ -3,7 +3,7 @@ name: project-context
 description: Shared PROJECT_CONTEXT.jsonl project memory. Invoked directly with no instruction, it immediately checkpoints the current session: review the work, choose the record type, compose the record, and append it. Also use it in repositories configured for this memory, including when AGENTS.md or CLAUDE.md mentions project-context: retrieve targeted recent/reflected state before relevant coding work; append rich durable observations, decisions, failed/successful attempts, learnings, verification, blockers, and handoffs after meaningful work; create reflections to consolidate older history. Do not use it as a transcript or tool-call log.
 compatibility: Requires Python 3.10+ and Git for repository metadata. Designed for multi-agent coding environments; host adapters are included for Claude Code, Codex, Grok Build, OpenCode, Cursor CLI, Factory Droid, Pi, Antigravity, Hermes Agent, and OpenClaw.
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
   protocol-version: "1"
 ---
 
@@ -171,16 +171,24 @@ python3 scripts/install.py detect
 
 # Install skill + project lifecycle integration for detected hosts
 python3 scripts/install.py skills --hosts auto --scope project --project-root "$PWD"
-python3 scripts/install.py hooks  --hosts auto --scope project --project-root "$PWD"
+python3 scripts/install.py hooks --hosts auto --scope project --project-root "$PWD" --hook-profile startup-only
 
 # Install lifecycle integration globally
-python3 scripts/install.py hooks --hosts auto --scope user
+python3 scripts/install.py hooks --hosts auto --scope user --hook-profile startup-only
 
 # Check what would/does apply
 python3 scripts/install.py status --hosts auto --scope project --project-root "$PWD"
 ```
 
-After installation, report: repository root, selected scope, detected/configured hosts, files created or modified, backups created, activation/trust steps still required, and whether `.agent/project-context.json` is initialized. Existing host configuration must be preserved; malformed configuration must be refused rather than overwritten.
+Choose the hook profile from the user's intent:
+
+- automatic startup context, recovery, or low overhead means `startup-only`;
+- checkpoint reminders, changed-work enforcement, or every-turn enforcement means `full`;
+- if the user only asks to “add hooks,” prefer `startup-only` and state that `full` is available for reminders.
+
+The CLI keeps `full` as its no-flag default for backward compatibility. Always pass the selected profile explicitly when acting through this skill. Re-running the installer safely switches profiles and preserves unrelated hooks.
+
+After installation, report: repository root, selected scope and hook profile, detected/configured hosts, files created or modified, backups created, activation/trust steps still required, and whether `.agent/project-context.json` is initialized. Existing host configuration must be preserved; malformed configuration must be refused rather than overwritten.
 
 The capability-driven adapter model is documented in `references/hooks.md` and `ARCHITECTURE.md`.
 

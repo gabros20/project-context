@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$DefaultVersion = "v0.4.0"
+$DefaultVersion = "v0.5.0"
 $Repository = "https://github.com/gabros20/project-context.git"
 $Version = if ($env:PROJECT_CONTEXT_VERSION) { $env:PROJECT_CONTEXT_VERSION } else { $DefaultVersion }
 

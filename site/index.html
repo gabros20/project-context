@@ -198,8 +198,8 @@
       <div class="records-layout shell">
         <header class="records-intro">
           <p class="utility-label">What gets saved</p>
-          <h2 id="records-title">The details another developer would need.</h2>
-          <p>Save conclusions and evidence, not a transcript. Three note types cover completed work, current project knowledge, and unfinished work.</p>
+          <h2 id="records-title">What the next coding agent needs.</h2>
+          <p>Save conclusions and evidence, not the transcript. Claude Code, Codex, or another agent can see what changed, what is still true, and exactly where to continue.</p>
         </header>
 
         <article class="record-type record-observation">
@@ -258,21 +258,21 @@
           <dl><div><dt>Runs</dt><dd>Only when invoked</dd></div><div><dt>Automatic writes</dt><dd>None</dd></div></dl>
         </article>
         <article class="runtime-mode">
-          <div class="runtime-mode-head"><code>hooks + off</code><span>startup help</span></div>
+          <div class="runtime-mode-head"><code>startup-only</code><span>low overhead</span></div>
           <h3>Load notes, do not enforce writes.</h3>
-          <p>Session start can load relevant notes. Prompt hooks keep a small Git baseline, and stop hooks check whether a checkpoint is due. The project log stays untouched.</p>
-          <dl><div><dt>Runs</dt><dd>Session and turn events</dd></div><div><dt>Automatic writes</dt><dd>None</dd></div></dl>
+          <p>Session start loads relevant notes. On agents with a startup event, project-context does not run on each prompt. Install it with <code>--hook-profile startup-only</code>.</p>
+          <dl><div><dt>Runs</dt><dd>Start and compaction</dd></div><div><dt>Automatic writes</dt><dd>None</dd></div></dl>
         </article>
         <article class="runtime-mode">
           <div class="runtime-mode-head"><code>changed-work</code><span>reminder</span></div>
           <h3>Remind me when code changed.</h3>
-          <p>The stop hook compares Git state. If the agent changed files and forgot to checkpoint, supported tools ask it to write one before finishing.</p>
+          <p>With the <code>full</code> profile, the stop hook compares Git state. If the agent changed files and forgot to checkpoint, supported tools ask it to write one before finishing.</p>
           <dl><div><dt>Runs</dt><dd>Every completed turn</dd></div><div><dt>Writes</dt><dd>Only when due</dd></div></dl>
         </article>
         <article class="runtime-mode">
           <div class="runtime-mode-head"><code>every-turn</code><span>strict</span></div>
           <h3>Account for every turn.</h3>
-          <p>Every completed turn needs a note or a reason to skip. This is useful for strict capture, but it is noisy for everyday development.</p>
+          <p>With the <code>full</code> profile, every completed turn needs a note or a reason to skip. This is useful for strict capture, but it is noisy for everyday development.</p>
           <dl><div><dt>Runs</dt><dd>Every completed turn</dd></div><div><dt>Writes</dt><dd>Note or skip every turn</dd></div></dl>
         </article>
       </div>
@@ -293,7 +293,7 @@
           <div><dt>Routine checkpoint</dt><dd>about 150 to 500 output tokens</dd></div>
           <div><dt>Background model calls</dt><dd>0</dd></div>
         </dl>
-        <p class="cost-caveat"><strong>Large repo note.</strong> With hooks installed, <code>turn-start</code> currently runs <code>git status --untracked-files=all</code> for each submitted prompt, even when the checkpoint gate is off. Use skill-only mode if you want the lowest possible per-turn overhead.</p>
+        <p class="cost-caveat"><strong>Choose the hook profile you need.</strong> <code>startup-only</code> removes prompt and Stop hooks on agents with a native session-start event. The <code>full</code> profile keeps them for reminders, but a disabled checkpoint gate now returns before <code>git status</code> or state writes. Antigravity still calls its small <code>PreInvocation</code> bridge because that is its startup injection point.</p>
       </div>
     </section>
 
@@ -304,7 +304,7 @@
           <h2 id="install-title">Install the skill in one command.</h2>
           <p>This installs the skill and the <code>ctx</code> command. It does not turn on hooks. Initialize each repository where you want shared notes, then add hooks later if you want them.</p>
           <ul>
-            <li>Pins version 0.4.0 by default</li>
+            <li>Pins version 0.5.0 by default</li>
             <li>No hooks unless you ask for them</li>
             <li>Checkpoint enforcement starts off</li>
             <li>Preserves unrelated host settings</li>

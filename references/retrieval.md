@@ -20,7 +20,11 @@ ctx decisions --scope auth
 ctx attempts --scope auth --outcome failed
 ctx open --scope auth
 ctx blockers
+ctx context --session 20260918-121008-6224   # one session's records, e.g. an orchestrated run
+ctx query --task auth-refresh --format jsonl
 ```
+
+`ctx attempts` folds the same approach with the same outcome, recorded by several sessions, into one line with `×N` and the other source ids — `--no-group` lists every occurrence.
 
 ## Reflection + tail
 

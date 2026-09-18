@@ -12,3 +12,4 @@ This repository uses the `project-context` Agent Skill and `.agent/PROJECT_CONTE
 - Never store secrets, `.env` contents, credentials, full transcripts, or large raw command output in project context.
 - If asked to install/check project-context lifecycle hooks, use the bundled skill installer. “This project/repo/here” means project scope; never silently install global hooks.
 - Use `ctx due --json` when an adapter or agent needs the deterministic checkpoint decision; do not duplicate that policy in host-specific code.
+- An orchestrated run (the `orchestrate` skill) records itself as one entry through `board memory` → `ctx append`; recall it with `ctx context --session <run-id>`.

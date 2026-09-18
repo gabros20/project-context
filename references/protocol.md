@@ -120,6 +120,10 @@ The current implementation never deletes covered observations, so coverage mista
 - `agent-authored` means the semantic payload intentionally attributed the listed files;
 - `git-snapshot` means `ctx` filled the list from the dirty worktree and the files may include concurrent or pre-existing changes.
 
+## Run records
+
+A record may describe one whole run of another tool rather than one session's work: `agent.name` is the tool (`orchestrate`), `agent.session_id` is the run id, and `task.id` repeats it so both `ctx context --session` and `ctx query --task` find it. Such a record carries the run's decisions (with rationale, or an explicit "not recorded"), the attempts that actually ran, learnings, verification and `current_state`; it never carries raw logs or report bodies, only their paths.
+
 ## Metadata owned by ctx
 
 The CLI derives and overwrites:

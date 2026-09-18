@@ -22,7 +22,7 @@ import uuid
 from typing import Any, Iterable
 
 PROTOCOL_VERSION = 1
-PACKAGE_VERSION = "0.5.0"
+PACKAGE_VERSION = "0.6.0"
 RECORD_TYPES = {"observation", "reflection", "handoff"}
 IMPORTANCE = {"low", "medium", "high", "critical"}
 ATTEMPT_OUTCOMES = {"worked", "failed", "partial", "inconclusive", "abandoned"}
@@ -237,6 +237,20 @@ def write_json_atomic(path: pathlib.Path, data: Any) -> None:
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
+
+
+def linked_worktree(root: pathlib.Path) -> tuple[bool, pathlib.Path | None]:
+    """Whether `root` is a linked Git worktree (its git dir is not the common dir). A repo-mode ledger there is
+    separate from the main checkout's; `--storage git-common` shares one across worktrees."""
+    git_dir = run_git(root, "rev-parse", "--git-dir")
+    common = run_git(root, "rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return False, None
+    gd = pathlib.Path(git_dir)
+    cd = pathlib.Path(common)
+    gd = (root / gd).resolve() if not gd.is_absolute() else gd.resolve()
+    cd = (root / cd).resolve() if not cd.is_absolute() else cd.resolve()
+    return gd != cd, cd
 
 
 def current_git_info(root: pathlib.Path) -> dict[str, Any]:
@@ -824,6 +838,8 @@ def filter_entries(
     since: str | None = None,
     minimum_importance: str | None = None,
     reference_entries: Iterable[dict[str, Any]] | None = None,
+    session: str | None = None,
+    task: str | None = None,
 ) -> list[dict[str, Any]]:
     entries = list(entries)
     references = list(reference_entries) if reference_entries is not None else entries
@@ -837,6 +853,10 @@ def filter_entries(
         if agent and str(entry.get("agent", {}).get("name", "")).lower() != agent.lower():
             continue
         if record_type and entry.get("record_type") != record_type:
+            continue
+        if session and str(entry.get("agent", {}).get("session_id", "")) != session:
+            continue
+        if task and str((entry.get("task") or {}).get("id", "") if isinstance(entry.get("task"), dict) else "") != task:
             continue
         if since_dt and entry_timestamp(entry) <= since_dt:
             continue
@@ -1015,8 +1035,10 @@ def select_context_entries(
     scopes: list[str] | None,
     path_query: str | None,
     latest_without_reflection: int,
+    session: str | None = None,
+    task: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    relevant = filter_entries(entries, scopes=scopes, path_query=path_query)
+    relevant = filter_entries(entries, scopes=scopes, path_query=path_query, session=session, task=task)
     reflection = latest_reflection(relevant, scopes)
     if not reflection:
         high = [entry for entry in relevant if IMPORTANCE_WEIGHT.get(str(entry.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]]
@@ -1033,7 +1055,7 @@ def select_context_entries(
 
     idx = coverage_index(entries, reflection)
     tail = entries[idx + 1 :] if idx >= 0 else entries
-    tail = filter_entries(tail, scopes=scopes, path_query=path_query, reference_entries=entries)
+    tail = filter_entries(tail, scopes=scopes, path_query=path_query, reference_entries=entries, session=session, task=task)
     reflection_id = reflection.get("entry_id")
     tail = [entry for entry in tail if entry.get("entry_id") != reflection_id]
 
@@ -1131,6 +1153,8 @@ def context_packet(
     token_budget: int | None = None,
     compact: bool = False,
     explain: bool = False,
+    session: str | None = None,
+    task: str | None = None,
 ) -> str:
     entries = load_entries(root, cfg)
     if not entries:
@@ -1144,8 +1168,12 @@ def context_packet(
         token_budget = int(
             startup_cfg.get("compact_token_budget" if compact else "token_budget", 1200 if compact else 2200)
         )
-    selected, reflection = select_context_entries(entries, scopes, path_query, default_latest)
+    selected, reflection = select_context_entries(entries, scopes, path_query, default_latest, session, task)
     scope_label = ",".join(scopes or []) or (path_query or "project")
+    if session:
+        scope_label += f" session={session}"
+    if task:
+        scope_label += f" task={task}"
     header = [
         f"PROJECT MEMORY — {scope_label}",
         f"repository: {root.name}",
@@ -1509,6 +1537,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         raw_log = pathlib.Path(str(cfg.get("storage", {}).get("path") or cfg.get("log", DEFAULT_CONFIG["log"])))
         append_marker_block(root / ".gitignore", "/" + raw_log.as_posix().lstrip("/"), "project-context-storage")
     print(f"initialized project-context in {root}")
+    linked, common = linked_worktree(root)
+    if linked and cfg.get("storage", {}).get("mode", "repo") == "repo":
+        print(f"warning: {root} is a linked worktree; a repo-mode ledger here is separate from the main checkout's "
+              f"(common Git dir: {common}). To share one ledger across worktrees: ctx init --storage git-common --force")
     print(f"config: {cfg_path.relative_to(root)}")
     print(f"log: {lp.relative_to(root) if lp.is_relative_to(root) else lp}")
     print(f"storage: {cfg.get('storage', {}).get('mode', 'repo')} / {cfg.get('storage', {}).get('tracking', 'unmanaged')}")
@@ -1562,7 +1594,8 @@ def cmd_startup(args: argparse.Namespace) -> int:
 def cmd_context(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
     budget = args.budget or int(cfg.get("retrieval", {}).get("token_budget", 3000))
-    print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=budget, compact=False, explain=args.explain))
+    print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=budget, compact=False, explain=args.explain,
+                         session=args.session, task=args.task))
     return 0
 
 
@@ -1591,6 +1624,8 @@ def cmd_query(args: argparse.Namespace) -> int:
         agent=args.agent_filter,
         record_type=args.record_type,
         minimum_importance=args.minimum_importance,
+        session=args.session,
+        task=args.task,
     )
     if args.latest:
         entries = entries[-args.latest :]
@@ -1629,9 +1664,22 @@ def cmd_decisions(args: argparse.Namespace) -> int:
     return 0
 
 
+def attempt_key(attempt: dict[str, Any]) -> tuple[str, str]:
+    return (" ".join(str(attempt.get("approach", "")).casefold().split()), str(attempt.get("outcome", "")))
+
+
 def cmd_attempts(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
     entries = filter_entries(load_entries(root, cfg), scopes=args.scope, path_query=args.path)
+    group = not getattr(args, "no_group", False)
+    # Fold repeats: the same approach with the same outcome, recorded by several sessions or tools, is one fact with a count.
+    occurrences: dict[tuple[str, str], list[str]] = {}
+    if group:
+        for entry in entries:
+            for attempt in entry.get("attempts", []) or []:
+                if isinstance(attempt, dict) and (not args.outcome or attempt.get("outcome") == args.outcome):
+                    occurrences.setdefault(attempt_key(attempt), []).append(str(entry.get("entry_id", "?")))
+    shown: set[tuple[str, str]] = set()
     blocks: list[str] = []
     for entry in entries:
         selected = []
@@ -1640,12 +1688,20 @@ def cmd_attempts(args: argparse.Namespace) -> int:
                 continue
             if args.outcome and attempt.get("outcome") != args.outcome:
                 continue
+            if group:
+                key = attempt_key(attempt)
+                if key in shown:
+                    continue
+                shown.add(key)
             selected.append(attempt)
         if not selected:
             continue
         lines = [extractor_header(entry)]
         for a in selected:
-            lines.append(f"ATTEMPT[{a.get('outcome','?')}]: {a.get('approach','')}")
+            others = [i for i in occurrences.get(attempt_key(a), []) if i != str(entry.get("entry_id", "?"))] if group else []
+            lines.append(f"ATTEMPT[{a.get('outcome','?')}]" + (f" ×{len(others) + 1}" if others else "") + f": {a.get('approach','')}")
+            if others:
+                lines.append(f"  also in: {', '.join(others)}")
             if a.get("reason"):
                 lines.append(f"  reason: {a['reason']}")
             if a.get("evidence"):
@@ -1700,6 +1756,15 @@ def cmd_append(args: argparse.Namespace, override: str | None = None) -> int:
     agent = args.agent or os.environ.get("PROJECT_CONTEXT_AGENT") or "unknown"
     path = log_path(root, cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if getattr(args, "check", False):
+        entry = build_entry(root, cfg, payload, agent, args.session_id, override, entries=load_entries(root, cfg),
+                            allow_empty_coverage=bool(getattr(args, "allow_empty_coverage", False)))
+        errors = validate_entry(entry)
+        if errors:
+            raise ContextError("invalid entry:\n- " + "\n- ".join(errors))
+        print(json.dumps({"ok": True, "check": True, "record_type": entry["record_type"], "scope": entry["scope"],
+                          "sections": sorted(k for k in entry if k not in {"version", "timestamp", "entry_id", "agent", "repository", "record_type", "importance", "scope", "context"})}))
+        return 0
     with file_lock(path):
         entries = load_entries(root, cfg)
         entry = build_entry(
@@ -1863,6 +1928,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("repo: not inside a Git repository")
         return 0
     print(f"repo: {root}")
+    linked, common = linked_worktree(root)
+    if linked:
+        print(f"worktree: linked (common Git dir: {common}) — repo-mode storage is separate from the main checkout's; git-common storage shares one ledger")
     cfg = load_config(root, require_enabled=False)
     print(f"config: {'present' if config_path(root).exists() else 'missing'}")
     if not cfg:
@@ -1919,6 +1987,7 @@ def add_append_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope", action="append")
     parser.add_argument("--context")
     parser.add_argument("--tag", action="append")
+    parser.add_argument("--check", action="store_true", help="build and validate the record, write nothing (no ledger append, no runtime state)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1949,6 +2018,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path")
     p.add_argument("--budget", type=int)
     p.add_argument("--explain", action="store_true", help="show selected entry IDs and selection reasons")
+    p.add_argument("--session", help="only records from this agent session id (an orchestrated run records itself under its run id)")
+    p.add_argument("--task", help="only records whose task.id matches")
     p.set_defaults(func=cmd_context)
 
     p = subs.add_parser("latest", help="show latest records")
@@ -1970,6 +2041,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scope", action="append")
     p.add_argument("--path")
     p.add_argument("--agent", dest="agent_filter")
+    p.add_argument("--session", help="only records from this agent session id")
+    p.add_argument("--task", help="only records whose task.id matches")
     p.add_argument("--record-type", choices=sorted(RECORD_TYPES))
     p.add_argument("--minimum-importance", choices=sorted(IMPORTANCE), default="low")
     p.add_argument("--latest", type=int, default=10)
@@ -1982,9 +2055,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_query(p)
     p.set_defaults(func=cmd_decisions)
 
-    p = subs.add_parser("attempts", help="project attempts, optionally by outcome")
+    p = subs.add_parser("attempts", help="project attempts, optionally by outcome; identical approach+outcome across records fold into one line with a count")
     add_common_query(p)
     p.add_argument("--outcome", choices=sorted(ATTEMPT_OUTCOMES))
+    p.add_argument("--no-group", action="store_true", help="show every occurrence instead of folding identical approach+outcome")
     p.set_defaults(func=cmd_attempts)
 
     p = subs.add_parser("open", help="remaining work, blockers, questions, next steps")

@@ -14,7 +14,7 @@ Windows PowerShell:
 irm https://project-context-mu.vercel.app/install.ps1 | iex
 ```
 
-The bootstrap downloads the pinned `v0.5.0` release into a temporary directory, invokes the same `scripts/install.py` shipped in that release, and removes the temporary checkout. It requires Python 3.10+ and Git.
+The bootstrap downloads the pinned `v0.6.0` release into a temporary directory, invokes the same `scripts/install.py` shipped in that release, and removes the temporary checkout. It requires Python 3.10+ and Git.
 
 Inspect the bootstrap without executing it:
 
@@ -39,7 +39,7 @@ curl -fsSL https://project-context-mu.vercel.app/install.sh | \
 Manual source installation remains available:
 
 ```bash
-git clone --branch v0.5.0 --depth 1 \
+git clone --branch v0.6.0 --depth 1 \
   https://github.com/gabros20/project-context.git
 cd project-context
 python3 scripts/install.py install --hosts auto

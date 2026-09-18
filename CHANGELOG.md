@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 - 2026-09-18
+
+### Added
+
+- `ctx context --session <id>` / `--task <id>` and `ctx query --session` / `--task`: recall the records one session or one task wrote, for example an orchestrated run that records itself under its run id.
+- `--check` on `ctx append`, `ctx handoff` and `ctx reflect`: build and validate the record (reflection coverage included) and write nothing, so any tool can prove a payload before committing it.
+- `ctx attempts` folds identical approach+outcome across records into one line with a count and the other source ids; `--no-group` shows every occurrence.
+- `ctx init` warns when run in a linked Git worktree with repo-mode storage (the ledger there is separate from the main checkout's) and names `--storage git-common`; `ctx doctor` reports a linked worktree.
+
+### Changed
+
+- Documentation covers run records (`task.id` and `agent.session_id` as the run's key) and the orchestrate `board memory` handshake.
+- Package version is 0.6.0; ledger protocol remains version 1 and existing logs require no rewrite.
+
 ## 0.5.0 - 2026-08-23
 
 ### Added

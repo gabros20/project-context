@@ -23,7 +23,7 @@ ctx doctor
 
 This installs the skill and the `ctx` command. It does not install hooks. Start here, then add hooks only if you want automatic startup context or checkpoint reminders.
 
-The bootstrap downloads the pinned `v0.5.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+The bootstrap downloads the pinned `v0.6.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
 
 Windows PowerShell:
 
@@ -157,6 +157,8 @@ Each adapter connects an agent tool's own skill and hook system to `ctx`. Every 
 | `ctx attempts --scope auth --outcome failed` | Find failed approaches before repeating them. |
 | `ctx open --scope auth` | Show remaining work and open questions. |
 | `ctx blockers` | Show recorded blockers. |
+| `ctx context --session <id>` | Recall what one session recorded, such as an orchestrated run keyed by its run id. |
+| `ctx append --check --input record.json` | Validate a record without writing it. |
 | `ctx latest 8` | Show the latest records. |
 | `ctx validate` | Validate the complete ledger. |
 | `ctx stats` | Show record and reflection statistics. |
@@ -182,7 +184,7 @@ See [the complete observation example](examples/observation.json) and [reflectio
 | Mode | Ledger location | Best for |
 |---|---|---|
 | `repo` | `.agent/PROJECT_CONTEXT.jsonl` | Agents working in one checkout. This is the default. |
-| `git-common` | Git's common directory | Multiple worktrees belonging to one clone. |
+| `git-common` | Git's common directory | Multiple worktrees belonging to one clone. `ctx init` in a linked worktree warns when repo storage would start a separate ledger. |
 | `external` | User-supplied absolute path | User-managed synchronization or storage outside the repository. |
 
 Examples:
@@ -270,6 +272,6 @@ python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 git diff --check
 ```
 
-Current package version: `0.5.0`. Ledger protocol version: `1`.
+Current package version: `0.6.0`. Ledger protocol version: `1`.
 
 Maintainers: see [RELEASING.md](RELEASING.md) for the signed-tag release process.

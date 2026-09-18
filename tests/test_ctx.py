@@ -84,6 +84,66 @@ class ProjectContextTests(unittest.TestCase):
         self.assertEqual(entry["agent"]["name"], "codex")
         self.assertTrue(any(f["path"] == "README.md" for f in entry["changes"]["files"]))
 
+    def test_linked_worktree_init_warns_and_doctor_reports(self):
+        td, repo = self.make_repo()
+        self.addCleanup(td.cleanup)
+        wt = repo.parent / (repo.name + "-wt")
+        git(repo, "worktree", "add", "-q", str(wt), "-b", "wt")
+        self.addCleanup(lambda: git(repo, "worktree", "remove", "--force", str(wt)))
+        proc = run(["--cwd", str(wt), "init"])
+        self.assertIn("linked worktree", proc.stdout)
+        self.assertIn("--storage git-common", proc.stdout)
+        doctor = run(["--cwd", str(wt), "doctor"])
+        self.assertIn("worktree: linked", doctor.stdout)
+        self.assertNotIn("worktree: linked", run(["--cwd", str(repo), "doctor"]).stdout)
+
+    def test_query_and_context_by_session_and_task(self):
+        td, repo = self.make_repo()
+        self.addCleanup(td.cleanup)
+        run_record = {"record_type": "handoff", "importance": "high", "scope": [], "task": {"id": "run-1", "title": "Ship it", "status": "open"},
+                      "context": "Orchestrated run one: two tasks accepted.", "current_state": {"status": "in_progress", "next_steps": ["review task 3"]}}
+        other = {"record_type": "observation", "scope": ["docs"], "context": "Unrelated docs work in another session."}
+        run(["--cwd", str(repo), "append", "--agent", "orchestrate", "--session-id", "run-1", "--input", "-"], input_text=json.dumps(run_record))
+        run(["--cwd", str(repo), "append", "--agent", "codex", "--session-id", "s-2", "--input", "-"], input_text=json.dumps(other))
+        by_session = run(["--cwd", str(repo), "query", "--session", "run-1", "--format", "jsonl"]).stdout.strip().splitlines()
+        self.assertEqual(len(by_session), 1)
+        self.assertEqual(json.loads(by_session[0])["task"]["id"], "run-1")
+        by_task = run(["--cwd", str(repo), "query", "--task", "run-1", "--format", "jsonl"]).stdout.strip().splitlines()
+        self.assertEqual(len(by_task), 1)
+        packet = run(["--cwd", str(repo), "context", "--session", "run-1"]).stdout
+        self.assertIn("session=run-1", packet)
+        self.assertIn("Orchestrated run one", packet)
+        self.assertNotIn("Unrelated docs work", packet)
+
+    def test_append_check_validates_without_writing(self):
+        td, repo = self.make_repo()
+        self.addCleanup(td.cleanup)
+        payload = {"record_type": "observation", "scope": ["core"], "context": "A record to prove, not to write.",
+                   "decisions": [{"decision": "x", "rationale": "y"}]}
+        proc = run(["--cwd", str(repo), "append", "--agent", "codex", "--check", "--input", "-"], input_text=json.dumps(payload))
+        out = json.loads(proc.stdout)
+        self.assertTrue(out["ok"] and out["check"])
+        self.assertIn("decisions", out["sections"])
+        self.assertIn("valid: 0 entries", run(["--cwd", str(repo), "validate"]).stdout)
+        bad = run(["--cwd", str(repo), "append", "--agent", "codex", "--check", "--input", "-"],
+                  input_text=json.dumps({"record_type": "observation", "scope": ["core"], "context": "", "decisions": [{"decision": "x"}]}), check=False)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("valid: 0 entries", run(["--cwd", str(repo), "validate"]).stdout)
+
+    def test_attempts_fold_repeats_across_records(self):
+        td, repo = self.make_repo()
+        self.addCleanup(td.cleanup)
+        attempt = {"approach": "Immediate single-use invalidation", "outcome": "failed", "reason": "concurrent refresh is rejected"}
+        for agent in ("claude", "codex"):
+            payload = {"record_type": "observation", "scope": ["auth"], "context": f"{agent} tried the strict path.", "attempts": [dict(attempt)]}
+            run(["--cwd", str(repo), "append", "--agent", agent, "--input", "-"], input_text=json.dumps(payload))
+        grouped = run(["--cwd", str(repo), "attempts", "--scope", "auth"]).stdout
+        self.assertEqual(grouped.count("Immediate single-use invalidation"), 1)
+        self.assertIn("×2", grouped)
+        self.assertIn("also in:", grouped)
+        every = run(["--cwd", str(repo), "attempts", "--scope", "auth", "--no-group"]).stdout
+        self.assertEqual(every.count("Immediate single-use invalidation"), 2)
+
     def test_reflection_and_startup(self):
         td, repo = self.make_repo()
         self.addCleanup(td.cleanup)

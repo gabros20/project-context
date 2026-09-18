@@ -3,7 +3,7 @@ name: project-context
 description: Shared PROJECT_CONTEXT.jsonl project memory. Invoked directly with no instruction, it immediately checkpoints the current session: review the work, choose the record type, compose the record, and append it. Also use it in repositories configured for this memory, including when AGENTS.md or CLAUDE.md mentions project-context: retrieve targeted recent/reflected state before relevant coding work; append rich durable observations, decisions, failed/successful attempts, learnings, verification, blockers, and handoffs after meaningful work; create reflections to consolidate older history. Do not use it as a transcript or tool-call log.
 compatibility: Requires Python 3.10+ and Git for repository metadata. Designed for multi-agent coding environments; host adapters are included for Claude Code, Codex, Grok Build, OpenCode, Cursor CLI, Factory Droid, Pi, Antigravity, Hermes Agent, and OpenClaw.
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
   protocol-version: "1"
 ---
 
@@ -100,7 +100,9 @@ cat <<'JSON' | ctx append --agent <host-name> --input -
 JSON
 ```
 
-The CLI adds `version`, `timestamp`, `entry_id`, repository/Git metadata, and session metadata. Do not manually fabricate fields the CLI derives.
+The CLI adds `version`, `timestamp`, `entry_id`, repository/Git metadata, and session metadata. Do not manually fabricate fields the CLI derives. `--check` builds and validates the record without writing it.
+
+A tool that coordinates other agents may record a whole run as one entry: the `orchestrate` skill's `board memory` renders a run (decisions with rationale, failed attempts, learnings, verification, the frontier) as a payload for `ctx append` / `ctx handoff`, keyed by `--session-id <run-id>` and `task.id`. Recall it with `ctx context --session <run-id>`.
 
 Read `references/logging-policy.md` when uncertain whether something deserves durable memory.
 
@@ -144,6 +146,8 @@ ctx decisions --scope auth
 ctx attempts --scope auth --outcome failed
 ctx open --scope auth
 ctx blockers
+ctx context --session <run-id>      # what one session (an orchestrated run) recorded
+ctx query --task <task-id>
 ctx due --json
 ctx validate
 ctx stats

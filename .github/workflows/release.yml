@@ -10,7 +10,17 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out the tagged source
         uses: actions/checkout@v6
@@ -20,19 +30,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - name: Verify release contract
-        run: python3 scripts/check_release.py "$GITHUB_REF_NAME"
+        run: python scripts/check_release.py "$GITHUB_REF_NAME"
 
       - name: Validate bootstrap syntax
+        shell: bash
         run: sh -n site/install.sh
 
       - name: Run tests
-        run: python3 -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -v
 
       - name: Compile Python entry points
-        run: python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
+        run: python -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 
   validate-powershell:
     runs-on: windows-latest

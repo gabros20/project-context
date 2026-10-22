@@ -9,6 +9,22 @@ Every supported agent reads and writes the same file. There is no database, back
 > [!NOTE]
 > The observation and reflection idea comes from Observational Memory. Here, the coding agent writes each useful checkpoint so unrelated tools can share the same file.
 
+## Everyday agent workflow
+
+```sh
+ctx context --query "describe the task" --path src/auth --budget 1200
+ctx scopes
+ctx show <source-id> --section current_state
+ctx template observation --minimal > /tmp/checkpoint.json
+# Fill actual findings, then validate and append the same file:
+ctx append --input /tmp/checkpoint.json --check
+ctx append --input /tmp/checkpoint.json --idempotency-key <session-task>
+ctx reflect --prepare --scope auth --budget 2000
+ctx doctor --host codex --json --self-test
+```
+
+Search is local lexical ranking with no network, embedding service or new dependency. Scope/path filters stay strict; paths are repeatable. Use `--history` on context/search/open/blockers to inspect obsolete state. See [retrieval](references/retrieval.md) for bounded recall and [protocol](references/protocol.md) for precise schema, resolution and retry semantics.
+
 ## Quick start
 
 Requirements: Python 3.10+ and Git.
@@ -23,7 +39,7 @@ ctx doctor
 
 This installs the skill and the `ctx` command. It does not install hooks. Start here, then add hooks only if you want automatic startup context or checkpoint reminders.
 
-The bootstrap downloads the pinned `v0.6.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+The bootstrap downloads the pinned `v0.7.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
 
 Windows PowerShell:
 
@@ -61,9 +77,9 @@ The default setup is skill-only. Nothing runs on every prompt unless you install
 | `full` hooks with `changed-work` | A Git baseline at prompt start and a check at completion | The agent is reminded when Git changed and no checkpoint exists |
 | `full` hooks with `every-turn` | A check after every completed turn | Every turn needs a checkpoint or explicit skip |
 
-Hooks run local Python, Git, and file operations. They do not make their own model request. With hooks installed, session start can inject up to 2,200 tokens of relevant memory. A compaction refresh is capped at 1,200 tokens. An explicit targeted query is capped at 3,000 tokens. Stored entries use no model tokens until an agent retrieves them.
+Hooks run local Python, Git, and file operations. They do not make their own model request. With hooks installed, session start can inject up to 2,200 tokens of relevant memory. A compaction refresh is capped at 1,200 tokens. An explicit targeted query is capped at 3,000 tokens. Existing stored entries use no input tokens until retrieved; authoring a new checkpoint still uses model output tokens.
 
-Loading the full skill is roughly 2,300 input tokens. The repository instruction block is roughly 400 tokens. A routine checkpoint is usually 100 to 300 words, or roughly 150 to 500 generated tokens including its structured fields. These are approximate numbers because `ctx` estimates tokens from character count rather than using a tokenizer.
+The everyday skill is shorter and defers installation and advanced schema references until requested. The repository instruction block is roughly 400 tokens. A routine checkpoint is usually 100 to 300 words, or roughly 150 to 500 generated tokens including its structured fields. These are approximate numbers because `ctx` estimates tokens from character count rather than using a tokenizer.
 
 Use the `startup-only` hook profile when you want automatic recovery without checkpoint reminders:
 
@@ -272,6 +288,6 @@ python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 git diff --check
 ```
 
-Current package version: `0.6.0`. Ledger protocol version: `1`.
+Current package version: `0.7.0`. Ledger protocol version: `1`.
 
 Maintainers: see [RELEASING.md](RELEASING.md) for the signed-tag release process.

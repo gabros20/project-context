@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.0 - 2026-10-22
+
+### Added
+
+- Local field-weighted lexical `search`, task-text `context --query`, scope discovery, source expansion, and repeatable path filters.
+- Semantic `schema` and working `template` commands, indexed validation errors, and shared schema/runtime validation.
+- Current-state resolution including item-level blocker resolution and explicit history views.
+- Bounded, paginated reflection preparation with explicit supporting sources, scoped uncovered statistics, and nonblocking milestones.
+- Retry-safe idempotency keys, configurable sandbox-friendly runtime, local host health diagnostics and session emission deduplication.
+- Fixed-budget retrieval evaluation and coverage, truncation, concurrency, sandbox and adapter regressions.
+
+### Fixed
+
+- Narrow reflections cannot hide unrelated or mixed-scope facts in global context or later reflection preparation.
+- Tight context budgets preserve actionable handoff fields and durable constraints before background.
+- Locks follow the canonical ledger; ancillary runtime failures cannot turn a persisted append into ambiguous failure.
+- Generated adapter subprocesses have timeouts and bounded diagnostics.
+
+### Changed
+
+- Shorter everyday skill with on-demand schema and installation guidance.
+- Runtime now defaults to repository-local .agent/runtime; ephemeral global-cache session state is not migrated.
+- Protocol remains1; existing durable logs are not rewritten. Legacy watermark-only reflection coverage is conservative.
+- Embeddings remain optional future work pending evaluation; all retrieval is offline with no new dependencies.
+
 ## 0.6.0 - 2026-09-18
 
 ### Added

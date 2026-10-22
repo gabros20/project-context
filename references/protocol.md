@@ -135,3 +135,21 @@ The CLI derives and overwrites:
 - `repository`
 
 The agent should provide semantic content rather than reimplementing metadata collection.
+
+## Semantic input and validation
+
+`ctx schema` describes agent-authored input; `ctx schema --stored` includes ctx-owned metadata. `ctx schema --section verification` is the smallest field reference. `ctx template <type> --minimal` returns valid starter JSON. Verification uses `{ "check": "...", "outcome": "passed", "details": "..." }`; allowed outcomes are passed, failed, partial, not_run, inconclusive. Runtime validation uses the bundled schema's supported constructs; errors identify JSON Pointer and rule. Append commands also accept `--json-errors` for structured diagnostics on stderr. Extensions are allowed, with warnings for likely misspellings.
+
+`ctx append --check` validates without a ledger or runtime write. `--idempotency-key` makes identical semantic retries return the original entry; different payloads using that key are rejected. Metadata collection is not an identity key. Prefer explicit `--session-id` or PROJECT_CONTEXT_SESSION_ID; multiple active sessions of one host will not silently borrow a shared host pointer.
+
+A whole-entry resolves relationship clears only that source's current_state in the current projection. `source-id#/current_state/blockers/0` removes one array item; indexes refer to the immutable source. Whole-entry supersession removes the source from current retrieval. History and show retain originals. Relationships must reference existing records; this also prevents future-reference cycles. Item pointers use current_state field names and array indexes, not arbitrary document edits.
+
+Reflection suppression uses explicit supporting IDs plus applicable coverage scope, not a global through_entry_id cutoff. Mixed-scope source records remain visible for their uncovered scopes. Previous reflections remain available unless superseded. New explicit empty coverage is rejected unless deliberately allowed. Legacy watermark-only records remain readable without granting unproven coverage.
+
+## Writable runtime
+
+Locks live in `.ctx-locks` next to the canonical ledger so all cooperating processes lock the same file, including git-common storage. Runtime state defaults to `.agent/runtime/<repo-key>`; configure `runtime.directory` in repository config or PROJECT_CONTEXT_RUNTIME_DIR for a writable alternative. Configure all cooperating harnesses consistently. Runtime/lock paths are excluded from Git checkpoint fingerprints. A durable append returns success even if its ancillary runtime update fails, with a warning and the persisted entry ID.
+
+`doctor --host <host> --json --self-test` validates the local ledger and bounded packet and reports project hook presence, writable paths, and emission metadata. Emitted does not mean acknowledged by the host. Delivery state is session-local; compaction requests a fresh baseline even when content is unchanged. Existing global-cache runtime state is ephemeral and is not migrated; durable records remain compatible.
+
+When upgrading from0.6, finish old agent sessions before allowing concurrent writers: new locks are ledger-adjacent, while older installations use home-cache locks. Do not run mixed runtime versions against the same ledger concurrently. No historical JSONL rewrite is required. Reinstall hooks through the bundled installer to pick up bounded adapter subprocesses.

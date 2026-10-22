@@ -2,12 +2,12 @@
 import { spawnSync } from "node:child_process";
 export default function projectContext(pi) {
   const PY=@@PYTHON@@, CTX=@@CTX@@; let sessionId=`pi-${Date.now()}-${Math.random().toString(16).slice(2)}`; let injected=false;
-  const run=(event,data,cwd)=>spawnSync(PY,[CTX,"hook",event,"--host","pi"],{input:JSON.stringify({cwd,session_id:sessionId,...data}),encoding:"utf8",cwd});
-  const startup=(cwd)=>spawnSync(PY,[CTX,"--cwd",cwd,"startup"],{encoding:"utf8",cwd});
+  const run=(event,data,cwd)=>spawnSync(PY,[CTX,"hook",event,"--host","pi"],{input:JSON.stringify({cwd,session_id:sessionId,...data}),encoding:"utf8",cwd,timeout:5000});
+  const startup=(cwd)=>spawnSync(PY,[CTX,"--cwd",cwd,"startup","--delivery","--agent","pi","--session-id",sessionId],{encoding:"utf8",cwd,timeout:5000});
   pi.on("session_start", async (event, c) => { sessionId=c.sessionManager.getSessionFile?.() || sessionId; run("session-start",{source:event.reason},c.cwd); injected=false; });
   pi.on("before_agent_start", async (_event, c) => {
 @@TURN_START@@
-    if(!injected) { const r=startup(c.cwd); injected=true; if(r.status===0 && r.stdout.trim()) return {message:{customType:"project-context",content:r.stdout.trim(),display:false}}; }
+    if(!injected) { const r=startup(c.cwd); if(r.status===0 && r.stdout.trim()) { injected=true; return {message:{customType:"project-context",content:r.stdout.trim(),display:false}}; } if(r.error || r.status!==0) console.error("project-context startup failed:", r.error?.message || r.stderr?.slice(0,300)); }
   });
 @@LIFECYCLE_HANDLERS@@
 }

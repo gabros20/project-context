@@ -23,7 +23,7 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
-PACKAGE_VERSION = "0.6.0"
+PACKAGE_VERSION = "0.7.0"
 SKILL_NAME = "project-context"
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOK_PROFILES = ("full", "startup-only")
@@ -563,7 +563,7 @@ def templated_pi_extension(profile: str) -> str:
     lifecycle = '''  pi.on("session_before_compact", async (_event,c)=>{ run("compact-before",{},c.cwd); });
   pi.on("session_compact", async (_event,c)=>{ run("compact-after",{},c.cwd); injected=false; });
   pi.on("agent_settled", async (_event,c)=>{ run("stop",{},c.cwd); });
-  pi.on("session_shutdown", async (_event,c)=>{ run("session-end",{},c.cwd); });''' if profile == "full" else '  pi.on("session_compact", async (_event,c)=>{ injected=false; });'
+  pi.on("session_shutdown", async (_event,c)=>{ run("session-end",{},c.cwd); });''' if profile == "full" else '  pi.on("session_compact", async (_event,c)=>{ run("compact-after",{},c.cwd); injected=false; });'
     return render_adapter_template(
         "pi-extension.ts", PACKAGE_VERSION=PACKAGE_VERSION,
         PYTHON=js_string(python_exe()), CTX=js_string(str(runtime_ctx())),

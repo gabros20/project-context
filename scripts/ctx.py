@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import collections
+import difflib
+import math
 import datetime as dt
 import hashlib
 import json
@@ -22,7 +25,7 @@ import uuid
 from typing import Any, Iterable
 
 PROTOCOL_VERSION = 1
-PACKAGE_VERSION = "0.6.0"
+PACKAGE_VERSION = "0.7.0"
 RECORD_TYPES = {"observation", "reflection", "handoff"}
 IMPORTANCE = {"low", "medium", "high", "critical"}
 ATTEMPT_OUTCOMES = {"worked", "failed", "partial", "inconclusive", "abandoned"}
@@ -50,6 +53,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "reflection": {"suggest_after_observations": 20},
     "checkpoint": {"stop_gate": "off"},
     "storage": {"mode": "repo", "tracking": "unmanaged"},
+    "runtime": {"directory": ".agent/runtime"},
     "scopes": [],
 }
 
@@ -132,6 +136,8 @@ def load_config(root: pathlib.Path, require_enabled: bool = True) -> dict[str, A
             override = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ContextError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(override, dict):
+        raise ContextError("project-context configuration must be an object")
     cfg = deep_merge(DEFAULT_CONFIG, override)
     legacy_stop = bool((override.get("hooks") or {}).get("stop_check")) if isinstance(override.get("hooks"), dict) else False
     checkpoint_override = override.get("checkpoint") if isinstance(override.get("checkpoint"), dict) else {}
@@ -162,6 +168,12 @@ def log_path(root: pathlib.Path, cfg: dict[str, Any]) -> pathlib.Path:
 
 
 def validate_config(root: pathlib.Path, cfg: dict[str, Any]) -> None:
+    for section in ("startup", "retrieval", "reflection"):
+        if not isinstance(cfg.get(section), dict):
+            raise ContextError(f"{section} configuration must be an object")
+        for key, value in cfg[section].items():
+            if key in {"token_budget", "compact_token_budget", "latest_without_reflection", "latest", "suggest_after_observations"} and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
+                raise ContextError(f"{section}.{key} must be a positive integer")
     storage = cfg.get("storage")
     if not isinstance(storage, dict):
         raise ContextError("storage configuration must be an object")
@@ -178,6 +190,9 @@ def validate_config(root: pathlib.Path, cfg: dict[str, Any]) -> None:
         resolved = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
         if not resolved.is_relative_to(root.resolve()):
             raise ContextError("repo storage path must stay inside the repository")
+    runtime = cfg.get("runtime", {})
+    if not isinstance(runtime, dict) or not isinstance(runtime.get("directory", ".agent/runtime"), str):
+        raise ContextError("runtime.directory must be a path string")
     checkpoint = cfg.get("checkpoint")
     if not isinstance(checkpoint, dict) or checkpoint.get("stop_gate", "off") not in CHECKPOINT_GATES:
         raise ContextError(f"checkpoint.stop_gate must be one of {sorted(CHECKPOINT_GATES)}")
@@ -199,8 +214,17 @@ def repo_key(root: pathlib.Path) -> str:
     return hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
 
 
+def runtime_location(root: pathlib.Path) -> pathlib.Path:
+    cfg = load_config(root, require_enabled=False) or {}
+    raw = os.environ.get("PROJECT_CONTEXT_RUNTIME_DIR") or (cfg.get("runtime") or {}).get("directory", ".agent/runtime")
+    base = pathlib.Path(raw).expanduser()
+    if not base.is_absolute():
+        base = root / base
+    return (base / repo_key(root)).resolve()
+
+
 def runtime_dir(root: pathlib.Path) -> pathlib.Path:
-    path = cache_root() / "runtime" / repo_key(root)
+    path = runtime_location(root)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -291,10 +315,13 @@ def coordination_paths(root: pathlib.Path | None = None) -> set[str]:
         cfg = None
     if not cfg:
         return paths
-    candidates = [log_path(root, cfg)]
+    candidates = [log_path(root, cfg), log_path(root, cfg).parent / ".ctx-locks", root / ".agent" / "runtime", runtime_location(root)]
+    if os.environ.get("PROJECT_CONTEXT_RUNTIME_DIR"):
+        candidates.append(pathlib.Path(os.environ["PROJECT_CONTEXT_RUNTIME_DIR"]).expanduser().resolve())
     schema_raw = pathlib.Path(str(cfg.get("schema_copy", ".agent/PROJECT_CONTEXT.schema.json"))).expanduser()
     candidates.append(schema_raw.resolve() if schema_raw.is_absolute() else (root / schema_raw).resolve())
     for candidate in candidates:
+        candidate = candidate.resolve()
         if candidate.is_relative_to(root.resolve()):
             paths.add(candidate.relative_to(root.resolve()).as_posix())
     return paths
@@ -307,7 +334,7 @@ def filtered_git_status(root: pathlib.Path) -> str:
         path = line[3:] if len(line) >= 4 else ""
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        if path.replace("\\", "/") in ignored:
+        if any(path.replace("\\", "/") == item or path.replace("\\", "/").startswith(item + "/") for item in ignored):
             continue
         kept.append(line)
     return "\n".join(kept)
@@ -332,7 +359,7 @@ def detect_changed_files(root: pathlib.Path) -> list[dict[str, Any]]:
         path = line[3:]
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        if path.replace("\\", "/") in ignored:
+        if any(path.replace("\\", "/") == item or path.replace("\\", "/").startswith(item + "/") for item in ignored):
             continue
         if status == "??":
             operation = "untracked"
@@ -376,138 +403,74 @@ def load_entries(root: pathlib.Path, cfg: dict[str, Any], strict: bool = True) -
     return entries
 
 
-def validate_semantic(
-    payload: dict[str, Any],
-    record_type_override: str | None = None,
-    strict_paths: bool = True,
-) -> list[str]:
+def schema_errors(value: Any, spec: dict[str, Any], pointer: str = "") -> list[str]:
+    """Validate the schema constructs shipped here, with actionable JSON Pointers."""
     errors: list[str] = []
-    record_type = record_type_override or payload.get("record_type")
-    if record_type not in RECORD_TYPES:
-        errors.append(f"record_type must be one of {sorted(RECORD_TYPES)}")
-    importance = payload.get("importance", "medium")
-    if importance not in IMPORTANCE:
-        errors.append(f"importance must be one of {sorted(IMPORTANCE)}")
-    scope = payload.get("scope")
-    if scope is None:
-        errors.append("scope is required (use [] only for truly project-wide records)")
-    elif not isinstance(scope, list) or not all(isinstance(x, str) and x.strip() for x in scope):
-        errors.append("scope must be an array of non-empty strings")
-    context = payload.get("context")
-    if not isinstance(context, str) or not context.strip():
-        errors.append("context is required and must be non-empty")
-    decisions = payload.get("decisions", []) or []
-    if not isinstance(decisions, list):
-        errors.append("decisions must be an array")
-        decisions = []
-    for decision in decisions:
-        if not isinstance(decision, dict):
-            errors.append("decisions entries must be objects")
-            continue
-        if not isinstance(decision.get("decision"), str) or not decision.get("decision", "").strip():
-            errors.append("decision requires a non-empty decision")
-        if not isinstance(decision.get("rationale"), str) or not decision.get("rationale", "").strip():
-            errors.append("decision requires a non-empty rationale")
-        alternatives = decision.get("alternatives", []) or []
-        if not isinstance(alternatives, list):
-            errors.append("decision alternatives must be an array")
-            alternatives = []
-        for alternative in alternatives:
-            if not isinstance(alternative, dict) or not isinstance(alternative.get("option"), str) or not alternative.get("option", "").strip():
-                errors.append("decision alternative requires a non-empty option")
-            if not isinstance(alternative, dict) or not isinstance(alternative.get("outcome"), str) or not alternative.get("outcome", "").strip():
-                errors.append("decision alternative requires a non-empty outcome")
-    attempts = payload.get("attempts", []) or []
-    if not isinstance(attempts, list):
-        errors.append("attempts must be an array")
-        attempts = []
-    for attempt in attempts:
-        if not isinstance(attempt, dict):
-            errors.append("attempts entries must be objects")
-            continue
-        if not isinstance(attempt.get("approach"), str) or not attempt.get("approach", "").strip():
-            errors.append("attempt requires a non-empty approach")
-        if attempt.get("outcome") not in ATTEMPT_OUTCOMES:
-            errors.append(f"attempt outcome must be one of {sorted(ATTEMPT_OUTCOMES)}")
-    learnings = payload.get("learnings", []) or []
-    if not isinstance(learnings, list):
-        errors.append("learnings must be an array")
-        learnings = []
-    for learning in learnings:
-        if not isinstance(learning, dict):
-            errors.append("learnings entries must be objects")
-            continue
-        if not isinstance(learning.get("statement"), str) or not learning.get("statement", "").strip():
-            errors.append("learning requires a non-empty statement")
-        if learning.get("type") not in LEARNING_TYPES:
-            errors.append(f"learning type must be one of {sorted(LEARNING_TYPES)}")
-        if learning.get("confidence") not in CONFIDENCE:
-            errors.append(f"learning confidence must be one of {sorted(CONFIDENCE)}")
-    verification = payload.get("verification", []) or []
-    if not isinstance(verification, list):
-        errors.append("verification must be an array")
-        verification = []
-    for check in verification:
-        if not isinstance(check, dict):
-            errors.append("verification entries must be objects")
-            continue
-        if not isinstance(check.get("check"), str) or not check.get("check", "").strip():
-            errors.append("verification requires a non-empty check")
-        if check.get("outcome") not in VERIFY_OUTCOMES:
-            errors.append(f"verification outcome must be one of {sorted(VERIFY_OUTCOMES)}")
-    changes = payload.get("changes")
-    if changes is not None:
-        if not isinstance(changes, dict):
-            errors.append("changes must be an object")
-        else:
-            capture = changes.get("capture")
-            if capture is not None and capture not in CHANGE_CAPTURE:
-                errors.append(f"changes.capture must be one of {sorted(CHANGE_CAPTURE)}")
-            files = changes.get("files", []) or []
-            if not isinstance(files, list):
-                errors.append("changes.files must be an array")
-                files = []
-            for file in files:
-                if not isinstance(file, dict):
-                    errors.append("changes.files entries must be objects")
-                    continue
-                file_path = file.get("path")
-                if not isinstance(file_path, str) or not file_path.strip() or (strict_paths and not valid_related_path(file_path)):
-                    errors.append("changed file requires a normalized repository-relative path")
-                if file.get("operation") not in FILE_OPERATIONS:
-                    errors.append(f"changed file operation must be one of {sorted(FILE_OPERATIONS)}")
-            artifacts = changes.get("artifacts", []) or []
-            if not isinstance(artifacts, list):
-                errors.append("changes.artifacts must be an array")
-                artifacts = []
-            for artifact in artifacts:
-                artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
-                if not isinstance(artifact_path, str) or not artifact_path.strip() or (strict_paths and not valid_related_path(artifact_path)):
-                    errors.append("artifact requires a normalized repository-relative path")
-                if not isinstance(artifact, dict) or not isinstance(artifact.get("type"), str) or not artifact.get("type", "").strip():
-                    errors.append("artifact requires a non-empty type")
-    related_paths = payload.get("related_paths", []) or []
-    if not isinstance(related_paths, list):
-        errors.append("related_paths must be an array")
-    elif not all(isinstance(path, str) and path.strip() for path in related_paths):
-        errors.append("related_paths must contain non-empty strings")
-    elif strict_paths and not all(valid_related_path(path) for path in related_paths):
-        errors.append("related_paths must contain normalized repository-relative paths")
-    if record_type == "handoff" and not isinstance(payload.get("current_state"), dict):
-        errors.append("handoff requires current_state")
-    if record_type == "reflection":
-        if not isinstance(payload.get("durable_state"), dict):
-            errors.append("reflection requires durable_state")
-        if payload.get("coverage") is not None and not isinstance(payload.get("coverage"), dict):
-            errors.append("reflection coverage must be an object")
-        coverage = payload.get("coverage")
-        if isinstance(coverage, dict):
-            support = coverage.get("supporting_entry_ids", []) or []
-            if not isinstance(support, list) or not all(isinstance(value, str) and value for value in support):
-                errors.append("coverage.supporting_entry_ids must be an array of entry IDs")
-            coverage_scope = coverage.get("scope", []) or []
-            if not isinstance(coverage_scope, list) or not all(isinstance(value, str) and value.strip() for value in coverage_scope):
-                errors.append("coverage.scope must be an array of non-empty strings")
+    location = pointer or "/"
+    types = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int}
+    expected = spec.get("type")
+    if expected in types and (not isinstance(value, types[expected]) or expected == "integer" and isinstance(value, bool)):
+        return [f"{location}: type: expected {expected}"]
+    if "enum" in spec and value not in spec["enum"]:
+        errors.append(f"{location}: enum: got {value!r}; expected one of {spec['enum']}")
+    if "const" in spec and value != spec["const"]:
+        errors.append(f"{location}: const: expected {spec['const']!r}")
+    if isinstance(value, str):
+        if len(value.strip()) < spec.get("minLength", 0):
+            errors.append(f"{location}: minLength: must be non-empty")
+        if spec.get("pattern") and not re.search(spec["pattern"], value):
+            errors.append(f"{location}: pattern: invalid value")
+    if isinstance(value, dict):
+        for key in spec.get("required", []):
+            if key not in value:
+                errors.append(f"{location.rstrip('/')}/{key}: required: field is missing")
+        props = spec.get("properties", {})
+        for key, item in value.items():
+            if key in props:
+                escaped = str(key).replace("~", "~0").replace("/", "~1")
+                errors.extend(schema_errors(item, props[key], pointer + "/" + escaped))
+        for condition in spec.get("allOf", []):
+            rule = condition.get("if", {}).get("properties", {})
+            if all(k in value and not schema_errors(value[k], v) for k, v in rule.items()):
+                errors.extend(schema_errors(value, condition.get("then", {}), pointer))
+    if isinstance(value, list):
+        if spec.get("uniqueItems") and len({json.dumps(x, sort_keys=True) for x in value}) != len(value):
+            errors.append(f"{location}: uniqueItems: duplicate values")
+        for index, item in enumerate(value):
+            errors.extend(schema_errors(item, spec.get("items", {}), pointer + f"/{index}"))
+    return errors
+
+
+def entry_schema() -> dict[str, Any]:
+    return json.loads((skill_root() / "assets" / "PROJECT_CONTEXT.schema.json").read_text(encoding="utf-8"))
+
+
+def semantic_schema(record_type: str | None = None) -> dict[str, Any]:
+    schema = entry_schema()
+    schema["required"] = ["record_type", "scope", "context"]
+    # Reflection coverage is computed atomically by ctx; it is not author input.
+    schema["allOf"] = [{"if": {"properties": {"record_type": {"const": "handoff"}}}, "then": {"required": ["current_state"]}},
+                        {"if": {"properties": {"record_type": {"const": "reflection"}}}, "then": {"required": ["durable_state"]}}]
+    for key in ("version", "timestamp", "entry_id", "agent", "repository"):
+        schema["properties"].pop(key, None)
+    return schema
+
+
+def validate_semantic(payload: dict[str, Any], record_type_override: str | None = None, strict_paths: bool = True) -> list[str]:
+    data = dict(payload)
+    if record_type_override:
+        data["record_type"] = record_type_override
+    errors = schema_errors(data, semantic_schema())
+    if strict_paths:
+        for index, path in enumerate(payload.get("related_paths", []) if isinstance(payload.get("related_paths", []), list) else []):
+            if not valid_related_path(path):
+                errors.append(f"/related_paths/{index}: path: expected normalized repository-relative path")
+        changes = payload.get("changes", {})
+        if isinstance(changes, dict):
+            for field in ("files", "artifacts"):
+                for index, item in enumerate(changes.get(field, []) if isinstance(changes.get(field, []), list) else []):
+                    if isinstance(item, dict) and not valid_related_path(item.get("path")):
+                        errors.append(f"/changes/{field}/{index}/path: expected normalized repository-relative path")
     return errors
 
 
@@ -531,7 +494,7 @@ def validate_entry(entry: dict[str, Any]) -> list[str]:
             parse_timestamp(str(entry["timestamp"]))
     except ContextError as exc:
         errors.append(str(exc))
-    errors.extend(validate_semantic(entry, strict_paths=False))
+    errors.extend(schema_errors(entry, entry_schema()))
     agent = entry.get("agent")
     if not isinstance(agent, dict) or not agent.get("name") or not agent.get("session_id"):
         errors.append("agent requires name and session_id")
@@ -550,7 +513,8 @@ def validate_entry(entry: dict[str, Any]) -> list[str]:
 
 
 def lock_path_for(log: pathlib.Path) -> pathlib.Path:
-    locks = cache_root() / "locks"
+    # Lock identity follows the canonical ledger, never a process-specific cache.
+    locks = log.resolve().parent / ".ctx-locks"
     locks.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha256(str(log.resolve()).encode()).hexdigest()
     return locks / f"{key}.lock"
@@ -637,10 +601,13 @@ def resolve_session_id(root: pathlib.Path, agent: str, explicit: str | None) -> 
     env_value = os.environ.get("PROJECT_CONTEXT_SESSION_ID")
     if env_value:
         return env_value
-    state = active_session(root, agent)
-    if state and state.get("session_id"):
-        return str(state["session_id"])
-    return f"manual-{dt.datetime.now().strftime('%Y%m%d')}"
+    sessions = [read_json(p, {}) for p in runtime_location(root).glob("session-*.json")]
+    sessions = [state for state in sessions if state.get("host") == agent and not state.get("ended_at")]
+    if len(sessions) == 1:
+        return str(sessions[0]["session_id"])
+    if len(sessions) > 1:
+        eprint("ctx: multiple active sessions; use --session-id or PROJECT_CONTEXT_SESSION_ID; recording a new manual session")
+    return f"manual-{uuid.uuid4()}"
 
 
 def auto_changes(root: pathlib.Path, payload: dict[str, Any]) -> None:
@@ -668,23 +635,20 @@ def reflection_coverage(entries: list[dict[str, Any]], payload: dict[str, Any], 
         payload["coverage"] = coverage = {}
     reflection_scope = [str(value) for value in payload.get("scope", []) if isinstance(value, str)]
     explicit_support = coverage.get("supporting_entry_ids")
-    if explicit_support:
+    if "supporting_entry_ids" in coverage:
+        if not explicit_support and not allow_empty:
+            raise ContextError("reflection has empty explicit coverage; select sources or use --allow-empty-coverage")
         known = {str(entry.get("entry_id")) for entry in entries}
         missing = [entry_id for entry_id in explicit_support if entry_id not in known]
         if missing:
             raise ContextError("reflection coverage references unknown entries: " + ", ".join(missing))
         coverage.setdefault("scope", reflection_scope)
         return
-    previous_reflection_idx = -1
-    for i, entry in enumerate(entries):
-        if entry.get("record_type") == "reflection" and scope_overlap(reflection_scope, entry.get("scope", [])):
-            previous_reflection_idx = i
-    candidates = [
-        entry
-        for entry in entries[previous_reflection_idx + 1 :]
-        if entry.get("record_type") in {"observation", "handoff"}
-        and scope_overlap(reflection_scope, entry.get("scope", []))
-    ]
+    covered = covered_entry_ids(entries, reflection_scope or None)
+    candidates = [entry for entry in entries
+                  if entry.get("record_type") in {"observation", "handoff"}
+                  and scope_overlap(reflection_scope, entry.get("scope", []))
+                  and entry.get("entry_id") not in covered]
     if not candidates:
         if not allow_empty:
             raise ContextError("reflection has no unreflected observations or handoffs in its scope; use --allow-empty-coverage to record an explicit baseline")
@@ -716,6 +680,11 @@ def build_entry(
         payload["record_type"] = record_type_override
     payload.setdefault("importance", "medium")
     errors = validate_semantic(payload, record_type_override)
+    for key in payload:
+        if key not in entry_schema()["properties"] and key not in {"idempotency_key", "idempotency_digest"}:
+            nearest = difflib.get_close_matches(key, entry_schema()["properties"], n=1, cutoff=0.80)
+            if nearest:
+                eprint(f"ctx: unknown field /{key}; did you mean /{nearest[0]}?")
     if errors:
         raise ContextError("invalid semantic payload:\n- " + "\n- ".join(errors))
     if payload.get("record_type") == "reflection":
@@ -821,6 +790,8 @@ def matches_path(
 ) -> bool:
     if not path_query:
         return True
+    if isinstance(path_query, list):
+        return any(matches_path(entry, item, entries_by_id) for item in path_query)
     q = path_query.replace("\\", "/").lower().rstrip("/")
     for path in entry_paths(entry, entries_by_id):
         p = path.replace("\\", "/").lower()
@@ -880,7 +851,10 @@ def format_entry(entry: dict[str, Any], full: bool = False) -> str:
     agent = entry.get("agent", {}).get("name", "unknown")
     scopes = ",".join(entry.get("scope", [])) or "project"
     header = f"[{entry.get('timestamp','?')}] {agent} {entry.get('record_type','?')}/{entry.get('importance','?')} [{scopes}] id={entry.get('entry_id','?')}"
-    lines = [header, str(entry.get("context", "")).strip()]
+    lines = [header]
+    if entry.get("state_resolution"):
+        lines.append("STATE RESOLVED: " + entry["state_resolution"])
+    lines.append(str(entry.get("context", "")).strip())
 
     for decision in entry.get("decisions", []) or []:
         if not isinstance(decision, dict):
@@ -1000,7 +974,7 @@ def blocks_with_budget(blocks: list[str], token_budget: int) -> str:
     max_chars = approx_char_budget(token_budget)
     out: list[str] = []
     used = 0
-    for block in blocks:
+    for block in reversed(blocks):
         sep = 2 if out else 0
         if used + sep + len(block) <= max_chars:
             out.append(block)
@@ -1030,6 +1004,88 @@ def latest_reflection(entries: list[dict[str, Any]], scopes: list[str] | None = 
     return candidates[-1] if candidates else None
 
 
+def covered_entry_ids(entries: list[dict[str, Any]], scopes: list[str] | None = None) -> set[str]:
+    """Only explicit source coverage can suppress a fact, and only in its scope."""
+    by_id = {e.get("entry_id"): e for e in entries}
+    covered: set[str] = set()
+    for reflection in entries:
+        if reflection.get("record_type") != "reflection":
+            continue
+        coverage = reflection.get("coverage") or {}
+        if not isinstance(coverage, dict):
+            continue
+        declared = coverage.get("scope", reflection.get("scope", []))
+        ref_scopes = {s.lower() for s in declared}
+        for source_id in coverage.get("supporting_entry_ids", []) or []:
+            source = by_id.get(source_id)
+            if not source:
+                continue
+            source_scopes = {s.lower() for s in source.get("scope", [])}
+            needed = source_scopes.intersection(s.lower() for s in scopes) if scopes else source_scopes
+            if not ref_scopes or "project" in ref_scopes or (needed and needed <= ref_scopes):
+                covered.add(source_id)
+    return covered
+
+
+def active_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply explicit resolution only; shared scopes never imply completion."""
+    removed: set[str] = set()
+    resolved: dict[str, list[str]] = collections.defaultdict(list)
+    # Relations authored by superseded records are retained as historical actions.
+    for entry in entries:
+        relations = entry.get("related_entries") or {}
+        removed.update(relations.get("supersedes", []))
+        for reference in relations.get("resolves", []):
+            source, _, pointer = reference.partition("#")
+            resolved[source].append(pointer)
+    out = []
+    for entry in entries:
+        eid = entry.get("entry_id")
+        if eid in removed:
+            continue
+        item = json.loads(json.dumps(entry))
+        pointers = resolved.get(eid, [])
+        if "" in pointers:
+            item.pop("current_state", None)
+            item["state_resolution"] = "resolved by a later source; use history for the original frontier"
+        else:
+            # Delete array members descending so sibling indexes stay stable.
+            for pointer in sorted(set(pointers), key=lambda x: (x.rsplit("/", 1)[0], int(x.rsplit("/", 1)[-1]) if x.rsplit("/", 1)[-1].isdigit() else -1), reverse=True):
+                parts = pointer.lstrip("/").split("/")
+                target: Any = item
+                try:
+                    for part in parts[:-1]:
+                        target = target[int(part)] if isinstance(target, list) else target[part]
+                    if isinstance(target, list):
+                        target.pop(int(parts[-1]))
+                    else:
+                        target.pop(parts[-1], None)
+                except (KeyError, IndexError, TypeError, ValueError):
+                    pass
+        out.append(item)
+    return out
+
+
+def validate_relations(payload: dict[str, Any], entries: list[dict[str, Any]]) -> None:
+    by_id = {e.get("entry_id"): e for e in entries}
+    for kind, refs in (payload.get("related_entries") or {}).items():
+        if kind not in {"resolves", "supersedes", "related"}:
+            continue
+        for reference in refs:
+            source, _, pointer = reference.partition("#")
+            if source not in by_id:
+                raise ContextError(f"/related_entries/{kind}: unknown source {source}")
+            if pointer:
+                if kind != "resolves" or not pointer.startswith("/current_state/"):
+                    raise ContextError("resolution pointers must address /current_state fields or items")
+                target: Any = by_id[source]
+                try:
+                    for part in pointer.lstrip("/").split("/"):
+                        target = target[int(part)] if isinstance(target, list) else target[part]
+                except (KeyError, IndexError, TypeError, ValueError) as exc:
+                    raise ContextError(f"invalid resolution pointer: {reference}") from exc
+
+
 def select_context_entries(
     entries: list[dict[str, Any]],
     scopes: list[str] | None,
@@ -1039,38 +1095,14 @@ def select_context_entries(
     task: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     relevant = filter_entries(entries, scopes=scopes, path_query=path_query, session=session, task=task)
-    reflection = latest_reflection(relevant, scopes)
-    if not reflection:
-        high = [entry for entry in relevant if IMPORTANCE_WEIGHT.get(str(entry.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]]
-        handoffs = [entry for entry in relevant if entry.get("record_type") == "handoff"]
-        selected: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for entry in [*high, *handoffs, *relevant[-latest_without_reflection:]]:
-            entry_id = str(entry.get("entry_id", id(entry)))
-            if entry_id not in seen:
-                selected.append(entry)
-                seen.add(entry_id)
-        selected.sort(key=entry_timestamp)
-        return selected, None
-
-    idx = coverage_index(entries, reflection)
-    tail = entries[idx + 1 :] if idx >= 0 else entries
-    tail = filter_entries(tail, scopes=scopes, path_query=path_query, reference_entries=entries, session=session, task=task)
-    reflection_id = reflection.get("entry_id")
-    tail = [entry for entry in tail if entry.get("entry_id") != reflection_id]
-
+    reflections = [e for e in relevant if e.get("record_type") == "reflection"]
+    reflection = reflections[-1] if reflections else None
+    covered = covered_entry_ids(relevant, scopes)
+    tail = [e for e in relevant if e.get("entry_id") not in covered and e is not reflection]
     high = [e for e in tail if IMPORTANCE_WEIGHT.get(str(e.get("importance", "low")), 0) >= IMPORTANCE_WEIGHT["high"]]
     handoffs = [e for e in tail if e.get("record_type") == "handoff"]
-    recent = tail[-latest_without_reflection:]
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for entry in [*high, *handoffs, *recent]:
-        eid = str(entry.get("entry_id", id(entry)))
-        if eid not in seen:
-            selected.append(entry)
-            seen.add(eid)
-    selected.sort(key=entry_timestamp)
-    return selected, reflection
+    selected = {str(e.get("entry_id")): e for e in [*reflections[:-1], *high, *handoffs, *tail[-latest_without_reflection:]]}
+    return sorted(selected.values(), key=entry_timestamp), reflection
 
 
 def prioritized_frontier(entries: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
@@ -1095,6 +1127,38 @@ def prioritized_frontier(entries: list[dict[str, Any]]) -> list[tuple[dict[str, 
     return result
 
 
+def brief_entry(entry: dict[str, Any], max_chars: int) -> str:
+    header = f"{entry.get('record_type','?')} [{','.join(entry.get('scope', []))}] source={entry.get('entry_id','?')}"
+    state = entry.get("current_state") or {}
+    durable = entry.get("durable_state") or {}
+    cards: list[str] = []
+    if entry.get("state_resolution"):
+        cards.append("STATE RESOLVED: " + entry["state_resolution"])
+    if state.get("status"):
+        cards.append(f"STATE: {state['status']}")
+    for key in ("blockers", "next_steps", "remaining", "open_questions", "working"):
+        cards.extend(f"{key.upper()}: {v}" for v in state.get(key, []) or [])
+    for key in ("constraints", "open_work", "architecture", "decisions", "known_failed_approaches", "successful_approaches", "completed"):
+        cards.extend(f"DURABLE {key.upper()}: {v}" for v in durable.get(key, []) or [])
+    cards.extend(f"VERIFY[{v.get('outcome')}]: {v.get('check')} {v.get('details','')}" for v in entry.get("verification", []) or [])
+    cards.extend(f"DECISION: {v.get('decision')} — {v.get('rationale')}" for v in entry.get("decisions", []) or [])
+    cards.extend(f"LEARNING[{v.get('type')}]: {v.get('statement')}" for v in entry.get("learnings", []) or [])
+    cards.append(str(entry.get("context", "")))
+    suffix = f"\nEXPAND: ctx show {entry.get('entry_id')}"
+    available = max(0, max_chars - len(header) - len(suffix) - 2)
+    if not available:
+        return trim_text(header, max_chars)
+    # Bound each field independently so the first large field cannot eat all others.
+    lines = [header]
+    per_field = max(80, available // min(max(len(cards), 1), 5))
+    for card in cards:
+        remaining = available - sum(len(x) + 1 for x in lines[1:])
+        if remaining <= 20:
+            break
+        lines.append(trim_text(card, min(remaining, per_field)))
+    return trim_text("\n".join(lines) + suffix, max_chars)
+
+
 def pack_context_packet(
     header: str,
     reflection: dict[str, Any] | None,
@@ -1111,7 +1175,7 @@ def pack_context_packet(
     if reflection:
         raw = "DURABLE REFLECTION\n" + format_entry(reflection, full=False)
         cap = max(400, int(maximum * 0.40))
-        block = trim_text(raw, min(cap, max(200, maximum - used)))
+        block = "DURABLE REFLECTION\n" + brief_entry(reflection, min(cap, max(200, maximum - used)) - 20)
         blocks.append(block)
         used += len(block) + 2
     reserve = len(help_text or "") + (2 if help_text else 0)
@@ -1124,7 +1188,7 @@ def pack_context_packet(
         # Preserve the latest handoff/newest record even when individually verbose.
         if len(raw) > remaining:
             if reason in {"latest-handoff", "newest-frontier"}:
-                raw = trim_text(raw, min(remaining, max(300, int(maximum * 0.30))))
+                raw = brief_entry(entry, min(remaining, max(400, int(maximum * 0.40))))
             else:
                 omitted += 1
                 continue
@@ -1137,11 +1201,87 @@ def pack_context_packet(
         lines = ["SELECTION EXPLANATION"]
         if reflection:
             lines.append(f"- {reflection.get('entry_id')}: relevant-reflection")
-        lines.extend(f"- {entry.get('entry_id')}: {reason}" for entry, reason, _ in selected)
+        lines.extend(f"- {entry.get('entry_id')}: {reason}" + ("; fields summarized, expand with ctx show" if "EXPAND: ctx show" in rendered else "") for entry, reason, rendered in selected)
         lines.append(f"- omitted_by_budget: {omitted}")
         blocks.append("\n".join(lines))
     if help_text:
         blocks.append(help_text)
+    return trim_text("\n\n".join(blocks), maximum)
+
+
+def scope_inventory(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    inventory: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        for scope in entry.get("scope", []) or ["project"]:
+            row = inventory.setdefault(scope, {"scope": scope, "count": 0, "paths": []})
+            row["count"] += 1
+            row["latest"] = entry.get("timestamp")
+            row["paths"] = list(dict.fromkeys([*entry_paths(entry), *row["paths"]]))[:3]
+    return sorted(inventory.values(), key=lambda row: (-row["count"], row["scope"]))
+
+
+def tokens(text: str) -> list[str]:
+    return re.findall(r"[^\W_]+", text.casefold(), re.UNICODE)
+
+
+def ranked_entries(entries: list[dict[str, Any]], query: str) -> list[tuple[float, dict[str, Any], str]]:
+    """Local field-weighted BM25. No network, model, or persistent index required."""
+    terms = list(dict.fromkeys(tokens(query)))
+    if not terms:
+        return []
+    fields: list[tuple[dict[str, Any], str, float, list[str]]] = []
+    for entry in entries:
+        values = [(entry.get("context", ""), 1.0), (" ".join(entry_paths(entry)), 2.5), (" ".join(entry.get("scope", [])), 1.5)]
+        for name, weight in (("decisions", 1.6), ("learnings", 1.6), ("current_state", 2.0), ("durable_state", 2.0), ("attempts", 1.2)):
+            if entry.get(name):
+                values.append((json.dumps(entry[name], ensure_ascii=False), weight))
+        for value, weight in values:
+            words = tokens(str(value))
+            if words:
+                fields.append((entry, str(value), weight, words))
+    if not fields:
+        return []
+    avg_len = sum(len(words) for _, _, _, words in fields) / len(fields)
+    frequency = collections.Counter(word for _, _, _, words in fields for word in set(words))
+    scores: dict[str, tuple[float, dict[str, Any], str]] = {}
+    for entry, value, weight, words in fields:
+        counts = collections.Counter(words)
+        score = 0.0
+        for term in terms:
+            tf = counts[term]
+            if tf:
+                idf = math.log(1 + (len(fields) - frequency[term] + 0.5) / (frequency[term] + 0.5))
+                score += weight * idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * len(words) / avg_len))
+        if not score:
+            continue
+        eid = str(entry.get("entry_id"))
+        prior = scores.get(eid)
+        snippet = value
+        pos = min((value.casefold().find(term) for term in terms if term in value.casefold()), default=0)
+        snippet = value[max(0, pos - 70):max(0, pos - 70) + 260].replace("\n", " ")
+        scores[eid] = (score + (prior[0] if prior else 0), entry, snippet if not prior or score > prior[0] else prior[2])
+    return sorted(scores.values(), key=lambda row: (row[0], entry_timestamp(row[1])), reverse=True)
+
+
+def no_match_message(entries: list[dict[str, Any]], scopes: list[str] | None = None) -> str:
+    names = [row["scope"] for row in scope_inventory(entries)]
+    suggestions = list(dict.fromkeys(name for scope in scopes or [] for name in difflib.get_close_matches(scope, names, n=3, cutoff=0.25)))
+    return ("No matching memory. Filters were not broadened.\n" +
+            ("Related scopes: " + ", ".join(suggestions) + "\n" if suggestions else "") +
+            "Discover: ctx scopes | Retry: ctx search \"describe the task\"")
+
+
+def search_packet(entries: list[dict[str, Any]], query: str, budget: int, limit: int = 6, scopes: list[str] | None = None) -> str:
+    hits = ranked_entries(entries, query)
+    if not hits:
+        return no_match_message(entries, scopes)
+    maximum = approx_char_budget(budget)
+    blocks = [f"SEARCH {query!r} matched={len(hits)}"]
+    for score, entry, snippet in hits[:limit]:
+        remaining = maximum - sum(len(x) + 2 for x in blocks)
+        if remaining < 200:
+            break
+        blocks.append(f"score={score:.2f} snippet={snippet}\n" + brief_entry(entry, min(remaining - 60 - len(snippet), max(240, maximum // max(1, min(limit, len(hits)))))))
     return trim_text("\n\n".join(blocks), maximum)
 
 
@@ -1155,8 +1295,11 @@ def context_packet(
     explain: bool = False,
     session: str | None = None,
     task: str | None = None,
+    query: str | None = None,
+    history: bool = False,
 ) -> str:
-    entries = load_entries(root, cfg)
+    raw_entries = load_entries(root, cfg)
+    entries = raw_entries if history else active_entries(raw_entries)
     if not entries:
         return (
             "PROJECT CONTEXT ENABLED\n"
@@ -1168,8 +1311,13 @@ def context_packet(
         token_budget = int(
             startup_cfg.get("compact_token_budget" if compact else "token_budget", 1200 if compact else 2200)
         )
+    relevant = filter_entries(entries, scopes=scopes, path_query=path_query, session=session, task=task)
+    if not relevant:
+        return no_match_message(entries, scopes)
+    if query:
+        return search_packet(relevant, query, token_budget, scopes=scopes)
     selected, reflection = select_context_entries(entries, scopes, path_query, default_latest, session, task)
-    scope_label = ",".join(scopes or []) or (path_query or "project")
+    scope_label = ",".join(scopes or []) or (",".join(path_query) if isinstance(path_query, list) else path_query or "project")
     if session:
         scope_label += f" session={session}"
     if task:
@@ -1177,7 +1325,7 @@ def context_packet(
     header = [
         f"PROJECT MEMORY — {scope_label}",
         f"repository: {root.name}",
-        f"entries: {len(entries)}",
+        f"entries: {len(raw_entries)} matched={len(relevant)} selected={len(selected) + int(reflection is not None)}",
     ]
     help_text = None
     if not compact:
@@ -1291,6 +1439,21 @@ def emit_hook_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
+def startup_delivery(root: pathlib.Path, cfg: dict[str, Any], host: str, session_id: str, compact: bool = False, budget: int | None = None) -> str:
+    text = context_packet(root, cfg, token_budget=budget, compact=compact)
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    path = session_state_path(root, session_id)
+    state = read_json(path, {}) or {}
+    if not compact and state.get("packet_hash") == digest and state.get("last_emitted_at") and not state.get("refresh_pending"):
+        return ""
+    # Persist emission metadata only; receiving-harness consumption is unobservable.
+    state.update({"session_id": session_id, "host": host, "packet_hash": digest,
+                  "last_emitted_at": utc_now(), "packet_estimated_tokens": (len(text) + 3) // 4,
+                  "refresh_pending": False, "delivery_status": "emitted_not_acknowledged"})
+    write_json_atomic(path, state)
+    return text
+
+
 def session_start_output(host: str, text: str, session_id: str) -> None:
     if host in {"claude", "codex"}:
         print(text)
@@ -1331,7 +1494,7 @@ def hook_session_start(host: str, data: dict[str, Any]) -> int:
     write_json_atomic(active_pointer_path(root, host), {"session_id": session_id, "updated_at": utc_now()})
     if host == "claude":
         persist_claude_env(session_id, host)
-    text = context_packet(root, cfg, compact=(source == "compact"))
+    text = startup_delivery(root, cfg, host, session_id, compact=(source == "compact")) if host in {"claude", "codex", "cursor", "droid"} else ""
     session_start_output(host, text, session_id)
     return 0
 
@@ -1474,7 +1637,7 @@ def hook_compact(host: str, data: dict[str, Any], phase: str) -> int:
     session_id = hook_session_id(host, data)
     path = session_state_path(root, session_id)
     state = read_json(path, {}) or {}
-    state.update({f"compact_{phase}_at": utc_now(), "last_seen_at": utc_now(), "host": host})
+    state.update({f"compact_{phase}_at": utc_now(), "last_seen_at": utc_now(), "host": host, "refresh_pending": True})
     write_json_atomic(path, state)
     return 0
 
@@ -1585,9 +1748,117 @@ def install_repo_instructions(root: pathlib.Path) -> None:
         append_marker_block(claude, "@AGENTS.md", "project-context-import")
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    root, cfg = repo_and_config(args)
+    entries = load_entries(root, cfg)
+    if not args.history:
+        entries = active_entries(entries)
+    entries = filter_entries(entries, scopes=args.scope, path_query=args.path)
+    print(search_packet(entries, args.query, args.budget, args.latest, args.scope))
+    return 0
+
+
+def cmd_scopes(args: argparse.Namespace) -> int:
+    root, cfg = repo_and_config(args)
+    rows = scope_inventory(active_entries(load_entries(root, cfg)))
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False))
+    else:
+        for row in rows:
+            print(f"{row['scope']} count={row['count']} paths={','.join(row['paths'])}")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    root, cfg = repo_and_config(args)
+    entries = load_entries(root, cfg)
+    matches = [e for e in entries if str(e.get("entry_id", "")).startswith(args.entry_id)]
+    if len(matches) != 1:
+        raise ContextError("entry ID must match exactly one record; use ctx search or ctx scopes")
+    entry = matches[0]
+    if args.section:
+        if args.section not in entry:
+            raise ContextError(f"section {args.section!r} absent; available: {', '.join(entry)}")
+        print(trim_text(json.dumps(entry[args.section], ensure_ascii=False, indent=2), approx_char_budget(args.budget)))
+    elif args.json:
+        print(json.dumps(entry, ensure_ascii=False))
+    else:
+        print(trim_text(format_entry(entry, full=True), approx_char_budget(args.budget)))
+    return 0
+
+
+def template_payload(kind: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {"record_type": kind, "scope": ["subsystem"], "context": "Explain the durable result and why it matters."}
+    if kind == "handoff":
+        payload["current_state"] = {"status": "in_progress", "next_steps": ["Concrete next action."]}
+    elif kind == "reflection":
+        payload["durable_state"] = {"constraints": ["Verified constraint."], "open_work": []}
+    else:
+        payload["verification"] = [{"check": "What was checked", "outcome": "passed", "details": "Exact result and limitations."}]
+    return payload
+
+
+def cmd_template(args: argparse.Namespace) -> int:
+    payload = template_payload(args.record_type)
+    if not args.minimal:
+        payload["importance"] = "medium"
+        payload["related_paths"] = []
+        payload["decisions"] = []
+        payload["attempts"] = []
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_schema(args: argparse.Namespace) -> int:
+    schema = semantic_schema() if not args.stored else entry_schema()
+    if args.section:
+        if args.section not in schema["properties"]:
+            raise ContextError("unknown schema section: " + args.section)
+        schema = schema["properties"][args.section]
+    print(json.dumps(schema, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_reflect(args: argparse.Namespace) -> int:
+    if not args.prepare:
+        return cmd_append(args, "reflection")
+    root, cfg = repo_and_config(args)
+    entries = active_entries(load_entries(root, cfg))
+    relevant = filter_entries(entries, scopes=args.scope)
+    covered = covered_entry_ids(entries, args.scope)
+    sources = [e for e in relevant if e.get("record_type") in {"observation", "handoff"} and e.get("entry_id") not in covered]
+    previous = [e for e in relevant if e.get("record_type") == "reflection"]
+    maximum = approx_char_budget(args.budget)
+    selected: list[dict[str, Any]] = []
+    used = 650
+    for entry in sources[args.offset:args.offset + args.latest]:
+        if used + 850 > maximum:
+            break
+        selected.append(entry)
+        used += 850
+    header = f"REFLECTION PREPARATION uncovered={len(sources)} shown={len(selected)} offset={args.offset}\nReview sources with ctx show before claiming coverage."
+    prepared = template_payload("reflection")
+    prepared["scope"] = args.scope or []
+    prepared["coverage"] = {"scope": args.scope or [], "supporting_entry_ids": [e["entry_id"] for e in selected]}
+    blocks = [header, "TEMPLATE: " + json.dumps(prepared)]
+    if previous:
+        blocks.append("PREVIOUS REFLECTION: " + brief_entry(previous[-1], 500))
+    blocks.extend(brief_entry(e, 650) for e in selected)
+    if args.offset + len(selected) < len(sources):
+        scope_flags = " ".join("--scope " + scope for scope in args.scope or [])
+        blocks.append(f"MORE: ctx reflect --prepare {scope_flags} --offset {args.offset + len(selected)} --budget {max(args.budget, 500)}")
+    print(trim_text("\n\n".join(blocks), maximum))
+    return 0
+
+
 def cmd_startup(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
-    print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=args.budget, compact=args.compact))
+    if args.delivery:
+        if not args.session_id:
+            raise ContextError("startup --delivery requires --session-id")
+        print(startup_delivery(root, cfg, args.agent or "unknown", args.session_id, compact=args.compact, budget=args.budget))
+    else:
+        print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=args.budget, compact=args.compact))
     return 0
 
 
@@ -1595,7 +1866,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
     budget = args.budget or int(cfg.get("retrieval", {}).get("token_budget", 3000))
     print(context_packet(root, cfg, scopes=args.scope, path_query=args.path, token_budget=budget, compact=False, explain=args.explain,
-                         session=args.session, task=args.task))
+                         session=args.session, task=args.task, query=args.query, history=args.history))
     return 0
 
 
@@ -1641,7 +1912,7 @@ def extractor_header(entry: dict[str, Any]) -> str:
 
 def cmd_decisions(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
-    entries = filter_entries(load_entries(root, cfg), scopes=args.scope, path_query=args.path)
+    entries = filter_entries(load_entries(root, cfg) if getattr(args, "history", False) else active_entries(load_entries(root, cfg)), scopes=args.scope, path_query=args.path)
     blocks: list[str] = []
     for entry in entries:
         decisions = entry.get("decisions", []) or []
@@ -1670,7 +1941,7 @@ def attempt_key(attempt: dict[str, Any]) -> tuple[str, str]:
 
 def cmd_attempts(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
-    entries = filter_entries(load_entries(root, cfg), scopes=args.scope, path_query=args.path)
+    entries = filter_entries(load_entries(root, cfg) if getattr(args, "history", False) else active_entries(load_entries(root, cfg)), scopes=args.scope, path_query=args.path)
     group = not getattr(args, "no_group", False)
     # Fold repeats: the same approach with the same outcome, recorded by several sessions or tools, is one fact with a count.
     occurrences: dict[tuple[str, str], list[str]] = {}
@@ -1715,7 +1986,7 @@ def cmd_attempts(args: argparse.Namespace) -> int:
 
 def cmd_open(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
-    entries = filter_entries(load_entries(root, cfg), scopes=args.scope, path_query=args.path)
+    entries = filter_entries(load_entries(root, cfg) if getattr(args, "history", False) else active_entries(load_entries(root, cfg)), scopes=args.scope, path_query=args.path)
     blocks: list[str] = []
     for entry in entries:
         state = entry.get("current_state")
@@ -1739,7 +2010,7 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 def cmd_blockers(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
-    entries = filter_entries(load_entries(root, cfg), scopes=args.scope, path_query=args.path)
+    entries = filter_entries(load_entries(root, cfg) if getattr(args, "history", False) else active_entries(load_entries(root, cfg)), scopes=args.scope, path_query=args.path)
     blocks: list[str] = []
     for entry in entries:
         state = entry.get("current_state")
@@ -1753,20 +2024,42 @@ def cmd_blockers(args: argparse.Namespace) -> int:
 def cmd_append(args: argparse.Namespace, override: str | None = None) -> int:
     root, cfg = repo_and_config(args)
     payload = read_payload(args, override)
+    errors = validate_semantic(payload, override)
+    if errors:
+        raise ContextError("invalid semantic payload:\n- " + "\n- ".join(errors))
+    key = getattr(args, "idempotency_key", None) or payload.get("idempotency_key")
+    if key:
+        payload["idempotency_key"] = key
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    if key:
+        payload["idempotency_digest"] = digest
     agent = args.agent or os.environ.get("PROJECT_CONTEXT_AGENT") or "unknown"
     path = log_path(root, cfg)
-    path.parent.mkdir(parents=True, exist_ok=True)
     if getattr(args, "check", False):
-        entry = build_entry(root, cfg, payload, agent, args.session_id, override, entries=load_entries(root, cfg),
+        if key:
+            prior = next((e for e in load_entries(root, cfg) if e.get("idempotency_key") == key), None)
+            if prior and prior.get("idempotency_digest") != digest:
+                raise ContextError("idempotency key already used for a different semantic payload")
+        entry = build_entry(root, cfg, payload, agent, args.session_id or "check-only", override, entries=load_entries(root, cfg),
                             allow_empty_coverage=bool(getattr(args, "allow_empty_coverage", False)))
+        validate_relations(payload, load_entries(root, cfg))
         errors = validate_entry(entry)
         if errors:
             raise ContextError("invalid entry:\n- " + "\n- ".join(errors))
         print(json.dumps({"ok": True, "check": True, "record_type": entry["record_type"], "scope": entry["scope"],
                           "sections": sorted(k for k in entry if k not in {"version", "timestamp", "entry_id", "agent", "repository", "record_type", "importance", "scope", "context"})}))
         return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
     with file_lock(path):
         entries = load_entries(root, cfg)
+        if key:
+            prior = next((e for e in entries if e.get("idempotency_key") == key), None)
+            if prior:
+                if prior.get("idempotency_digest") != digest:
+                    raise ContextError("idempotency key already used for a different semantic payload")
+                print(json.dumps({"entry_id": prior["entry_id"], "timestamp": prior["timestamp"], "record_type": prior["record_type"], "replayed": True}))
+                return 0
+        validate_relations(payload, entries)
         entry = build_entry(
             root,
             cfg,
@@ -1778,8 +2071,20 @@ def cmd_append(args: argparse.Namespace, override: str | None = None) -> int:
             allow_empty_coverage=bool(getattr(args, "allow_empty_coverage", False)),
         )
         append_entry(root, cfg, entry, already_locked=True)
-    update_runtime_after_checkpoint(root, agent, entry["agent"]["session_id"], entry["entry_id"])
-    print(json.dumps({"entry_id": entry["entry_id"], "timestamp": entry["timestamp"], "record_type": entry["record_type"]}))
+    try:
+        update_runtime_after_checkpoint(root, agent, entry["agent"]["session_id"], entry["entry_id"])
+    except OSError as exc:
+        eprint(f"ctx: checkpoint persisted as {entry['entry_id']}; runtime update warning: {exc}")
+    result = {"entry_id": entry["entry_id"], "timestamp": entry["timestamp"], "record_type": entry["record_type"]}
+    threshold = max(1, int(cfg.get("reflection", {}).get("suggest_after_observations", 20)))
+    for scope in entry["scope"] or ["project"]:
+        all_records = [*entries, entry]
+        covered = covered_entry_ids(all_records, [scope])
+        count = sum(e.get("record_type") in {"observation", "handoff"} and e.get("entry_id") not in covered and matches_scope(e, [scope]) for e in all_records)
+        if count and count % threshold == 0:
+            result["reflection_hint"] = f"{count} uncovered records in {scope}; ctx reflect --prepare --scope {scope}"
+            break
+    print(json.dumps(result))
     return 0
 
 
@@ -1871,20 +2176,31 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     root, cfg = repo_and_config(args)
     entries = load_entries(root, cfg)
+    current = active_entries(entries)
     counts = {kind: sum(1 for e in entries if e.get("record_type") == kind) for kind in sorted(RECORD_TYPES)}
     last_ref = latest_reflection(entries)
-    since_ref = 0
-    if last_ref:
-        idx = coverage_index(entries, last_ref)
-        since_ref = sum(1 for e in entries[idx + 1 :] if e.get("record_type") in {"observation", "handoff"})
-    else:
-        since_ref = counts["observation"] + counts["handoff"]
+    covered = covered_entry_ids(current)
+    uncovered = [e for e in current if e.get("record_type") in {"observation", "handoff"} and e.get("entry_id") not in covered]
+    since_ref = len(uncovered)
     threshold = int(cfg.get("reflection", {}).get("suggest_after_observations", 20))
+    names = sorted({scope for e in current for scope in e.get("scope", []) or ["project"]})
+    scope_counts: dict[str, int] = {}
+    scope_tokens: dict[str, int] = {}
+    for scope in names:
+        scope_covered = covered_entry_ids(current, None if scope == "project" else [scope])
+        remaining = [e for e in current if e.get("record_type") in {"observation", "handoff"} and matches_scope(e, None if scope == "project" else [scope]) and e.get("entry_id") not in scope_covered]
+        scope_counts[scope] = len(remaining)
+        scope_tokens[scope] = sum(len(format_entry(e)) for e in remaining) // 4
+    suggested = [scope for scope in names if scope_counts[scope] >= threshold or scope_tokens[scope] > int(cfg.get("retrieval", {}).get("token_budget", 3000)) * 2]
     data = {
+        "reflection_suggested_scopes": suggested,
+        "uncovered_by_scope": scope_counts,
+        "uncovered_tokens_by_scope": scope_tokens,
+        "uncovered_estimated_tokens": sum(len(format_entry(e)) for e in uncovered) // 4,
         "entries": len(entries),
         "record_types": counts,
         "observations_since_reflection": since_ref,
-        "reflection_suggested": since_ref >= threshold,
+        "reflection_suggested": bool(suggested),
         "log_bytes": log_path(root, cfg).stat().st_size if log_path(root, cfg).exists() else 0,
         "latest_entry": entries[-1].get("timestamp") if entries else None,
         "latest_reflection": last_ref.get("timestamp") if last_ref else None,
@@ -1893,7 +2209,57 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def doctor_health(args: argparse.Namespace) -> int:
+    root = discover_repo(getattr(args, "cwd", None))
+    host = args.host or os.environ.get("PROJECT_CONTEXT_AGENT", "unknown")
+    manifest = read_json(skill_root() / "adapters" / "HOSTS.json", {}) or {}
+    details = (manifest.get("hosts") or {}).get(host, {})
+    cfg = load_config(root, require_enabled=False) if root else None
+    health: dict[str, Any] = {"package_version": PACKAGE_VERSION, "protocol_version": PROTOCOL_VERSION,
+                              "host": host, "initialized": bool(cfg), "self_test": "not_requested"}
+    if root and cfg:
+        runtime = runtime_location(root)
+        parent = runtime
+        while not parent.exists():
+            parent = parent.parent
+        ledger = log_path(root, cfg)
+        ledger_parent = ledger.parent
+        while not ledger_parent.exists():
+            ledger_parent = ledger_parent.parent
+        hook_raw = details.get("lifecycle", {}).get("project")
+        hook = (root / hook_raw) if hook_raw else None
+        try:
+            # Import by path works both as `python scripts/ctx.py` and as a module.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("ctx_install_health", skill_root() / "scripts" / "install.py")
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+            profile = installer.installed_hook_profile(host, hook)
+        except (OSError, ValueError, RuntimeError, AttributeError):
+            profile = "unknown"
+        health.update({"hook_profile": profile, "runtime_path": str(runtime), "runtime_writable": os.access(parent, os.W_OK),
+                       "ledger_writable": os.access(ledger if ledger.exists() else ledger_parent, os.W_OK),
+                       "lifecycle_present": bool(hook and hook.exists()), "hook_path": str(hook) if hook else None,
+                       "checkpoint_gate": cfg["checkpoint"]["stop_gate"],
+                       "activation_required": details.get("lifecycle", {}).get("activation_required", False),
+                       "trust_required": details.get("lifecycle", {}).get("trust_required_project", False)})
+        sessions = [read_json(p, {}) for p in runtime.glob("session-*.json")] if runtime.exists() else []
+        sessions = [x for x in sessions if x.get("host") == host]
+        latest = max(sessions, key=lambda x: x.get("last_emitted_at", ""), default={})
+        health["last_emission"] = {k: latest[k] for k in ("session_id", "last_emitted_at", "packet_hash", "packet_estimated_tokens", "delivery_status") if k in latest}
+        health["diagnosis"] = "configured; host consumption is unverified" if health["lifecycle_present"] else "no project lifecycle configuration; check user installation or use explicit ctx startup"
+        if args.self_test:
+            errors = [error for e in load_entries(root, cfg) for error in validate_entry(e)]
+            packet = context_packet(root, cfg, token_budget=300)
+            health["self_test"] = "passed" if not errors and len(packet) <= approx_char_budget(300) else "failed"
+            health["errors"] = errors[:5]
+    print(json.dumps(health, ensure_ascii=False, indent=2))
+    return int(health.get("self_test") == "failed")
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
+    if args.host or args.json or args.self_test:
+        return doctor_health(args)
     root = discover_repo(getattr(args, "cwd", None))
     print(f"project-context {PACKAGE_VERSION} / protocol {PROTOCOL_VERSION}")
     print(f"python: {sys.version.split()[0]}")
@@ -1974,7 +2340,7 @@ def cmd_hook(args: argparse.Namespace) -> int:
 
 def add_common_query(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope", action="append", help="scope label; repeatable")
-    parser.add_argument("--path", help="repo-relative path/prefix")
+    parser.add_argument("--path", action="append", help="repo-relative path/prefix")
     parser.add_argument("--latest", type=int, default=10)
     parser.add_argument("--budget", type=int, default=3000, help="approximate output token budget")
 
@@ -1987,6 +2353,8 @@ def add_append_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope", action="append")
     parser.add_argument("--context")
     parser.add_argument("--tag", action="append")
+    parser.add_argument("--json-errors", action="store_true", help="structured JSON Pointer validation diagnostics on stderr")
+    parser.add_argument("--idempotency-key", help="stable unique key for retry-safe append")
     parser.add_argument("--check", action="store_true", help="build and validate the record, write nothing (no ledger append, no runtime state)")
 
 
@@ -2008,19 +2376,51 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subs.add_parser("startup", help="render bounded startup context")
     p.add_argument("--scope", action="append")
-    p.add_argument("--path")
+    p.add_argument("--path", action="append")
     p.add_argument("--budget", type=int)
     p.add_argument("--compact", action="store_true")
+    p.add_argument("--delivery", action="store_true", help="session-specific emission deduplication for adapters")
+    p.add_argument("--session-id")
+    p.add_argument("--agent")
     p.set_defaults(func=cmd_startup)
 
     p = subs.add_parser("context", help="render reflection + relevant tail for a scope/path")
     p.add_argument("--scope", action="append")
-    p.add_argument("--path")
+    p.add_argument("--path", action="append")
     p.add_argument("--budget", type=int)
     p.add_argument("--explain", action="store_true", help="show selected entry IDs and selection reasons")
     p.add_argument("--session", help="only records from this agent session id (an orchestrated run records itself under its run id)")
     p.add_argument("--task", help="only records whose task.id matches")
+    p.add_argument("--query", help="rank memory by task text within explicit filters")
+    p.add_argument("--history", action="store_true")
     p.set_defaults(func=cmd_context)
+
+    p = subs.add_parser("search", help="local ranked lexical search; no embeddings or network")
+    p.add_argument("query")
+    add_common_query(p)
+    p.add_argument("--history", action="store_true")
+    p.set_defaults(func=cmd_search)
+
+    p = subs.add_parser("scopes", help="discover scope labels, counts and paths")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_scopes)
+
+    p = subs.add_parser("show", help="expand one source ID, or one section")
+    p.add_argument("entry_id")
+    p.add_argument("--section")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--budget", type=int, default=3000)
+    p.set_defaults(func=cmd_show)
+
+    p = subs.add_parser("template", help="working semantic payload examples")
+    p.add_argument("record_type", choices=sorted(RECORD_TYPES))
+    p.add_argument("--minimal", action="store_true")
+    p.set_defaults(func=cmd_template)
+
+    p = subs.add_parser("schema", help="semantic input schema; metadata is owned by ctx")
+    p.add_argument("--section")
+    p.add_argument("--stored", action="store_true", help="show persisted entry schema including metadata")
+    p.set_defaults(func=cmd_schema)
 
     p = subs.add_parser("latest", help="show latest records")
     p.add_argument("count", type=int, nargs="?", default=8)
@@ -2039,7 +2439,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subs.add_parser("query", help="filter records")
     p.add_argument("--scope", action="append")
-    p.add_argument("--path")
+    p.add_argument("--path", action="append")
     p.add_argument("--agent", dest="agent_filter")
     p.add_argument("--session", help="only records from this agent session id")
     p.add_argument("--task", help="only records whose task.id matches")
@@ -2063,10 +2463,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subs.add_parser("open", help="remaining work, blockers, questions, next steps")
     add_common_query(p)
+    p.add_argument("--history", action="store_true")
     p.set_defaults(func=cmd_open)
 
     p = subs.add_parser("blockers", help="current blockers")
     add_common_query(p)
+    p.add_argument("--history", action="store_true")
     p.set_defaults(func=cmd_blockers)
 
     p = subs.add_parser("append", help="append an observation/reflection/handoff from semantic JSON")
@@ -2080,7 +2482,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = subs.add_parser("reflect", help="append a reflection and auto-fill missing coverage boundaries")
     add_append_args(p)
     p.add_argument("--allow-empty-coverage", action="store_true", help="allow a reflection with no unreflected source records in scope")
-    p.set_defaults(func=lambda a: cmd_append(a, "reflection"))
+    p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--latest", type=int, default=10)
+    p.add_argument("--prepare", action="store_true", help="bounded source packet and reflection template; does not append")
+    p.add_argument("--budget", type=int, default=3000)
+    p.set_defaults(func=cmd_reflect)
 
     p = subs.add_parser("skip", help="acknowledge changed Git state that has no durable project-context value")
     p.add_argument("--agent")
@@ -2101,6 +2507,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_stats)
 
     p = subs.add_parser("doctor", help="check installation and current repository")
+    p.add_argument("--host", choices=["claude", "codex", "grok", "opencode", "cursor", "droid", "pi", "antigravity", "hermes", "openclaw"])
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--self-test", action="store_true", help="check local ledger and packet; does not launch the host")
     p.set_defaults(func=cmd_doctor)
 
     p = subs.add_parser("hook", help="host lifecycle adapter")
@@ -2114,10 +2523,31 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    for field in ("budget", "latest"):
+        value = getattr(args, field, None)
+        if value is not None and value <= 0:
+            parser.error(f"--{field} must be positive")
+    if getattr(args, "offset", 0) < 0:
+        parser.error("--offset must be non-negative")
     try:
         return int(args.func(args))
-    except ContextError as exc:
-        eprint(f"ctx: {exc}")
+    except (ContextError, OSError) as exc:
+        if getattr(args, "json_errors", False):
+            diagnostics = []
+            for line in str(exc).splitlines():
+                if line.startswith("- /"):
+                    pointer, _, message = line[2:].partition(": ")
+                    code, _, detail = message.partition(": ")
+                    diagnostics.append({"pointer": pointer, "code": code, "message": detail or message})
+            eprint(json.dumps({"ok": False, "error": str(exc).splitlines()[0], "diagnostics": diagnostics}))
+        else:
+            eprint(f"ctx: {exc}")
+        if args.command == "hook":
+            if args.host == "antigravity":
+                emit_hook_json({"injectSteps": []} if args.event == "pre-invocation" else {})
+            elif args.host in {"cursor", "droid", "codex", "claude"}:
+                emit_hook_json({})
+            return 0
         return 2
     except KeyboardInterrupt:
         eprint("ctx: interrupted")

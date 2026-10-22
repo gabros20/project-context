@@ -24,7 +24,7 @@ def run(args, cwd=None, input_text=None, check=True):
 
 
 def git(repo, *args):
-    proc = subprocess.run(["git", "-C", str(repo), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(["git", "-c", "commit.gpgsign=false", "-C", str(repo), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr)
     return proc.stdout.strip()
@@ -234,7 +234,7 @@ class ProjectContextTests(unittest.TestCase):
         }
         proc = run(["--cwd", str(repo), "append", "--agent", "codex", "--input", "-"], input_text=json.dumps(invalid), check=False)
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("decision requires", proc.stderr)
+        self.assertIn("/decisions/0/decision: required", proc.stderr)
         self.assertIn("repository-relative path", proc.stderr)
 
     def test_every_turn_due_can_be_satisfied_by_skip(self):

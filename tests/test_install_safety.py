@@ -20,7 +20,7 @@ def run_ctx(args, cwd=None, check=True):
 
 
 def git(repo, *args):
-    proc = subprocess.run(["git", "-C", str(repo), *args], text=True,
+    proc = subprocess.run(["git", "-c", "commit.gpgsign=false", "-C", str(repo), *args], text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr)

@@ -60,6 +60,7 @@
       "items": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
       "uniqueItems": true
     },
+    "idempotency_key": {"type": "string", "minLength": 1},
     "context": {"type": "string", "minLength": 1},
     "decisions": {
       "type": "array",
@@ -67,8 +68,8 @@
         "type": "object",
         "required": ["decision", "rationale"],
         "properties": {
-          "decision": {"type": "string"},
-          "rationale": {"type": "string"},
+          "decision": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1},
           "alternatives": {
             "type": "array",
             "items": {
@@ -92,7 +93,7 @@
         "type": "object",
         "required": ["approach", "outcome"],
         "properties": {
-          "approach": {"type": "string"},
+          "approach": {"type": "string", "minLength": 1},
           "outcome": {"enum": ["worked", "failed", "partial", "inconclusive", "abandoned"]},
           "reason": {"type": "string"},
           "evidence": {"type": "string"},
@@ -108,7 +109,7 @@
         "required": ["type", "statement", "confidence"],
         "properties": {
           "type": {"enum": ["fact", "invariant", "constraint", "convention", "gotcha", "hypothesis", "open_question"]},
-          "statement": {"type": "string"},
+          "statement": {"type": "string", "minLength": 1},
           "confidence": {"enum": ["confirmed", "likely", "tentative"]}
         },
         "additionalProperties": true
@@ -154,7 +155,7 @@
         "type": "object",
         "required": ["check", "outcome"],
         "properties": {
-          "check": {"type": "string"},
+          "check": {"type": "string", "minLength": 1},
           "outcome": {"enum": ["passed", "failed", "partial", "not_run", "inconclusive"]},
           "details": {"type": "string"}
         },

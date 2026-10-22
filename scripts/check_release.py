@@ -52,6 +52,15 @@ def main() -> int:
         if value != expected_tag:
             raise SystemExit(f"release check: {label} pins {value!r}; expected {expected_tag!r}")
 
+    for relative, pattern in (
+        ("scripts/ctx.py", r'^PACKAGE_VERSION = "([^\"]+)"$'),
+        ("SKILL.md", r'^  version: "([^\"]+)"$'),
+        ("adapters/HOSTS.json", r'^  "version": "([^\"]+)"'),
+    ):
+        declared = match(pattern, ROOT / relative, relative)
+        if declared != package_version:
+            raise SystemExit(f"release check: {relative} declares {declared}; expected {package_version}")
+
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if not re.search(rf"^## {re.escape(package_version)} - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.MULTILINE):
         raise SystemExit(f"release check: CHANGELOG.md has no dated {package_version} section")

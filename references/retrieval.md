@@ -1,60 +1,36 @@
 # Retrieval strategy
 
-Read this when startup context is insufficient or when deciding which historical slice to retrieve.
+Use one bounded request relevant to the current task. Prefer a packet already injected at startup over a redundant explicit startup call. Do not read full JSONL solely because it exists.
 
-## Default rule
-
-Never read the full JSONL solely because it exists.
-
-Use one targeted `ctx` query and let the CLI project structured records into plain text.
-
-## Typical queries
-
-```bash
-ctx context --scope auth
-ctx context --path src/auth/session.ts
-ctx context --scope auth --path src/auth/session.ts --budget 4000
-ctx latest 12
-ctx since 2026-08-17T09:30:00Z
-ctx decisions --scope auth
-ctx attempts --scope auth --outcome failed
-ctx open --scope auth
-ctx blockers
-ctx context --session 20260918-121008-6224   # one session's records, e.g. an orchestrated run
-ctx query --task auth-refresh --format jsonl
+```sh
+ctx context --path src/auth --path src/api --budget 1200
+ctx context --query "Safari viewport mobile hero height" --budget 1200
+ctx search "exact error message" --scope auth --budget 1000
+ctx scopes
+ctx show <entry-id> --section current_state
+ctx context --scope auth --explain
 ```
 
-`ctx attempts` folds the same approach with the same outcome, recorded by several sessions, into one line with `×N` and the other source ids — `--no-group` lists every occurrence.
+Repeated paths are OR; different filter types are AND. Scope labels match exactly, case-insensitively. No-match responses suggest discovery without silently broadening filters. Search ranks fields locally with BM25, weighting declared paths, durable constraints, and current state. It uses no embedding provider, external service, or additional database. Rebuilds are unnecessary at current ledger sizes; benchmark before adding an index or embeddings.
 
-## Reflection + tail
+Context defaults to current records. Superseded records are removed and explicitly resolved state is folded; use `context --history` or `search --history` to investigate earlier claims. `show` always expands the immutable source, so provenance remains accessible. A claim's age or shared scope does not establish resolution. Search scores indicate lexical relevance, not truth or verification confidence.
 
-`ctx startup` and `ctx context` prefer:
+Packets select relevant reflections plus uncovered source records. Coverage is explicit and scope-sensitive; a docs reflection cannot discard auth history. For a multi-scope/global packet, a partial-scope reflection cannot hide the other parts of a mixed-scope observation. Legacy watermark-only coverage is treated conservatively. Older relevant reflections remain available until explicitly superseded.
 
-1. latest relevant reflection;
-2. latest relevant handoff;
-3. high/critical records after reflection coverage;
-4. newest medium records after coverage until the budget is filled.
+Under budget pressure, brief cards retain current blockers, next steps and durable constraints before background prose, with `ctx show` expansion. `--explain` reports selection and budget omissions. Budgets are approximate characters/4, with a minimum400-character packet; they are not model-specific token counts. Unicode and JSON identifiers can tokenize differently.
 
-This gives the agent durable state plus the unreflected frontier.
+Session defaults are2200 estimated tokens for startup,1200 after compaction,3000 for explicit retrieval. Increase explicit recall only when the missing material warrants it. Do not replace meaningful words with run-together shorthand to save tokens.
 
-Reflection coverage is scope-aware. A reflection for `docs` does not advance or hide the `auth` frontier. Path retrieval follows direct `related_paths`, files/artifacts, and a reflection's supporting entry links.
+For one run use `ctx context --session <id>` or `--task <id>`. For focused fields use `ctx decisions`, `ctx attempts --outcome failed`, `ctx open`, or `ctx blockers`. Extractors prefer recent blocks when the budget is tight. Attempts fold identical approaches with identical outcomes; `--no-group` expands repeats.
 
-The packet reserves space in priority order for the relevant reflection, newest handoff, newest frontier entry, high/critical records, and recent lower-priority entries. It selects newest-first under the budget and renders selected entries chronologically.
+## Reflection preparation
 
-Use `ctx context --explain` to see selected entry IDs, selection reasons, and the count omitted by the budget.
+```sh
+ctx stats
+ctx reflect --prepare --scope auth --budget 2000
+ctx reflect --prepare --scope auth --offset 4 --budget 2000
+```
 
-## Budgets
+Preparation does not call a model or append a record. It returns the previous reflection, bounded source cards, and a template with explicit supporting IDs for the displayed source set. Read those sources before claiming coverage. Pagination can produce separate partial reflections. The CLI validates source existence and fills boundaries, but the agent owns semantic completeness and factual accuracy.
 
-Repository config controls approximate token budgets. The implementation estimates tokens conservatively from characters; it does not require a tokenizer dependency.
-
-Recommended defaults:
-
-- session-start: 2200 tokens
-- compact/resume refresh: 1200 tokens
-- explicit retrieval: 3000 tokens
-
-Increase explicit retrieval before increasing global startup context.
-
-## Raw modes
-
-Use `--format jsonl` only when machine processing or exact field inspection is required. Use `--full` when more structured detail is needed in plain output.
+Stats reports uncovered work by scope and estimated volume. Appending produces a nonblocking reflection hint at uncovered-count milestones. There is no requirement to reflect after every command.

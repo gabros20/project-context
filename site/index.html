@@ -285,11 +285,11 @@
         </div>
         <dl class="cost-list">
           <div><dt>Repo instructions</dt><dd>about 400 tokens</dd></div>
-          <div><dt>Skill when loaded</dt><dd>about 2,300 tokens</dd></div>
+          <div><dt>Skill when loaded</dt><dd>short core + on-demand references</dd></div>
           <div><dt>Session-start notes</dt><dd>up to 2,200 tokens</dd></div>
           <div><dt>Compaction refresh</dt><dd>up to 1,200 tokens</dd></div>
           <div><dt>Targeted query</dt><dd>up to 3,000 tokens</dd></div>
-          <div><dt>Notes on disk</dt><dd>0 tokens until retrieved</dd></div>
+          <div><dt>Notes on disk</dt><dd>0 input tokens until retrieved</dd></div>
           <div><dt>Routine checkpoint</dt><dd>about 150 to 500 output tokens</dd></div>
           <div><dt>Background model calls</dt><dd>0</dd></div>
         </dl>
@@ -304,7 +304,7 @@
           <h2 id="install-title">Install the skill in one command.</h2>
           <p>This installs the skill and the <code>ctx</code> command. It does not turn on hooks. Initialize each repository where you want shared notes, then add hooks later if you want them.</p>
           <ul>
-            <li>Pins version 0.5.0 by default</li>
+            <li>Pins version 0.7.0 by default</li>
             <li>No hooks unless you ask for them</li>
             <li>Checkpoint enforcement starts off</li>
             <li>Preserves unrelated host settings</li>

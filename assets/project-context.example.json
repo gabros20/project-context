@@ -22,5 +22,6 @@
     "mode": "repo",
     "tracking": "unmanaged"
   },
+  "runtime": {"directory": ".agent/runtime"},
   "scopes": []
 }

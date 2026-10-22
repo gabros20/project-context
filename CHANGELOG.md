@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 - 2026-10-22
+
+- Run release tag verification in an explicit Bash shell on Windows and Linux.
+- Includes all v0.7.0 agent-efficiency changes; v0.7.0 was tagged but its publication was stopped by the Windows workflow shell mismatch.
+- Cross-platform product tests passed before tagging; publication remains gated by the full platform matrix.
+
 ## 0.7.0 - 2026-10-22
 
 ### Added

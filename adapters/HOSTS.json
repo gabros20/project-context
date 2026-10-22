@@ -1,5 +1,5 @@
 {
-  "version": "0.7.0",
+  "version": "0.7.1",
   "protocol_version": 1,
   "hook_profiles": ["startup-only", "full"],
   "verified_at": "2026-08-22",

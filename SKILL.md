@@ -3,7 +3,7 @@ name: project-context
 description: Shared project memory across coding harnesses. Invoked directly with no instruction, it immediately checkpoints the current session: review the work, choose the record type, compose the record, and append it. Also use it in repositories configured for this memory, including when AGENTS.md or CLAUDE.md mentions project-context: retrieve targeted recent/reflected state before relevant coding work; append rich durable observations, decisions, failed/successful attempts, learnings, verification, blockers, and handoffs after meaningful work; create reflections to consolidate older history. Do not use it as a transcript or tool-call log.
 compatibility: Requires Python 3.10+ and Git for repository metadata. Designed for multi-agent coding environments; host adapters are included for Claude Code, Codex, Grok Build, OpenCode, Cursor CLI, Factory Droid, Pi, Antigravity, Hermes Agent, and OpenClaw.
 metadata:
-  version: "0.7.0"
+  version: "0.7.1"
   protocol-version: "1"
 ---
 

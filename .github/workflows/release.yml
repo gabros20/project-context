@@ -33,6 +33,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Verify release contract
+        shell: bash
         run: python scripts/check_release.py "$GITHUB_REF_NAME"
 
       - name: Validate bootstrap syntax

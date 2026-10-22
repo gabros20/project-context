@@ -106,7 +106,7 @@ class UniversalInstallTests(unittest.TestCase):
     def test_skill_locations_and_manifest_cover_all_hosts(self):
         data=json.loads((ROOT/"adapters/HOSTS.json").read_text())
         self.assertEqual(set(data["hosts"]),set(HOSTS))
-        self.assertEqual(data["version"],"0.7.0")
+        self.assertEqual(data["version"],"0.7.1")
         self.assertEqual(data["hook_profiles"],["startup-only","full"])
         for host in HOSTS:
             self.assertIn("primary", data["hosts"][host]["invocation"])

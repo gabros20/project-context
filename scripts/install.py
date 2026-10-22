@@ -23,7 +23,7 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
-PACKAGE_VERSION = "0.7.0"
+PACKAGE_VERSION = "0.7.1"
 SKILL_NAME = "project-context"
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOK_PROFILES = ("full", "startup-only")

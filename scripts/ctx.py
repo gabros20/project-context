@@ -27,7 +27,7 @@ import uuid
 from typing import Any, Iterable
 
 PROTOCOL_VERSION = 1
-PACKAGE_VERSION = "0.7.0"
+PACKAGE_VERSION = "0.7.1"
 RECORD_TYPES = {"observation", "reflection", "handoff"}
 IMPORTANCE = {"low", "medium", "high", "critical"}
 ATTEMPT_OUTCOMES = {"worked", "failed", "partial", "inconclusive", "abandoned"}

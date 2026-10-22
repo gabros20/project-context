@@ -39,7 +39,7 @@ ctx doctor
 
 This installs the skill and the `ctx` command. It does not install hooks. Start here, then add hooks only if you want automatic startup context or checkpoint reminders.
 
-The bootstrap downloads the pinned `v0.7.0` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
+The bootstrap downloads the pinned `v0.7.1` release into a temporary directory. The installer keeps one copy in `~/.agent-skills/project-context`, links it into each detected agent's skill directory, and creates a `ctx` launcher in `~/.local/bin` on Unix-like systems.
 
 Windows PowerShell:
 
@@ -288,6 +288,6 @@ python3 -m py_compile scripts/ctx.py scripts/install.py scripts/check_release.py
 git diff --check
 ```
 
-Current package version: `0.7.0`. Ledger protocol version: `1`.
+Current package version: `0.7.1`. Ledger protocol version: `1`.
 
 Maintainers: see [RELEASING.md](RELEASING.md) for the signed-tag release process.

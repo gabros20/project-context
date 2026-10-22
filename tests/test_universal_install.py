@@ -57,7 +57,8 @@ class UniversalInstallTests(unittest.TestCase):
             run_install(["install", "--hosts", "all"], home)
             canonical = home / ".agent-skills" / "project-context"
             self.assertTrue((canonical / "SKILL.md").exists())
-            self.assertTrue((home / ".local" / "bin" / "ctx").exists())
+            launcher = home / "bin" / "ctx.cmd" if os.name == "nt" else home / ".local" / "bin" / "ctx"
+            self.assertTrue(launcher.exists())
             self.assertFalse((canonical / ".git").exists())
             self.assertFalse((canonical / ".github").exists())
 

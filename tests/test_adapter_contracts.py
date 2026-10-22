@@ -89,7 +89,7 @@ class AdapterContractTests(unittest.TestCase):
             home = base / "home"
             repo.mkdir(); home.mkdir()
             command(["git", "-C", str(repo), "init", "-q"])
-            env = os.environ.copy(); env["HOME"] = str(home)
+            env = os.environ.copy(); env["HOME"] = str(home); env["USERPROFILE"] = str(home)
             command([sys.executable, str(INSTALL), "hooks", "--hosts", "opencode,pi,hermes,openclaw",
                      "--scope", "project", "--project-root", str(repo)], env=env)
             opencode = (repo / ".opencode/plugins/project-context.js").read_text()
@@ -113,7 +113,7 @@ class AdapterContractTests(unittest.TestCase):
             home = base / "home"
             repo.mkdir(); home.mkdir()
             command(["git", "-C", str(repo), "init", "-q"])
-            env = os.environ.copy(); env["HOME"] = str(home)
+            env = os.environ.copy(); env["HOME"] = str(home); env["USERPROFILE"] = str(home)
             command([sys.executable, str(INSTALL), "hooks", "--hosts", "opencode,pi,hermes,openclaw",
                      "--scope", "project", "--project-root", str(repo), "--hook-profile", "startup-only"], env=env)
 

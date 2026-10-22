@@ -75,7 +75,7 @@ class InstallSafetyTests(unittest.TestCase):
             (home / ".agent-skills" / "project-context").mkdir(parents=True)
 
             env = os.environ.copy()
-            env["HOME"] = str(home)
+            env["HOME"] = str(home); env["USERPROFILE"] = str(home)
             proc = subprocess.run([sys.executable, str(INSTALL), "hooks", "--hosts", "claude", "--scope", "user"],
                                   env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if proc.returncode != 0:
@@ -110,7 +110,7 @@ class InstallSafetyTests(unittest.TestCase):
             settings.write_text(original, encoding="utf-8")
             (home / ".agent-skills" / "project-context").mkdir(parents=True)
             env = os.environ.copy()
-            env["HOME"] = str(home)
+            env["HOME"] = str(home); env["USERPROFILE"] = str(home)
             proc = subprocess.run([sys.executable, str(INSTALL), "hooks", "--hosts", "claude", "--scope", "user"],
                                   env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.assertNotEqual(proc.returncode, 0)

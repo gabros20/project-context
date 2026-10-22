@@ -17,7 +17,7 @@ def git(repo, *args):
 
 
 def run_install(args, home, cwd=None, check=True):
-    env=os.environ.copy(); env["HOME"]=str(home)
+    env=os.environ.copy(); env["HOME"]=str(home); env["USERPROFILE"]=str(home)
     p=subprocess.run([sys.executable,str(INSTALL),*args],cwd=cwd,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if check and p.returncode:
         raise AssertionError(f"install failed\nstdout={p.stdout}\nstderr={p.stderr}")

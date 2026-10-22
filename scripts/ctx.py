@@ -9,6 +9,7 @@ import argparse
 import contextlib
 import collections
 import difflib
+import errno
 import math
 import datetime as dt
 import hashlib
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import uuid
 from typing import Any, Iterable
 
@@ -161,7 +163,7 @@ def log_path(root: pathlib.Path, cfg: dict[str, Any]) -> pathlib.Path:
         if not common_path.is_absolute():
             common_path = (root / common_path).resolve()
         relative = raw if not raw.is_absolute() else pathlib.Path(raw.name)
-        if str(relative) == str(DEFAULT_CONFIG["log"]):
+        if relative.as_posix() == DEFAULT_CONFIG["log"]:
             relative = pathlib.Path("project-context/PROJECT_CONTEXT.jsonl")
         return (common_path / relative).resolve()
     return raw.resolve() if raw.is_absolute() else (root / raw).resolve()
@@ -528,17 +530,30 @@ def file_lock(log: pathlib.Path):
     try:
         if os.name == "nt":
             import msvcrt  # type: ignore
-
-            fh.seek(0)
+            fh.seek(0, os.SEEK_END)
             if fh.tell() == 0:
                 fh.write(b"0")
                 fh.flush()
-            fh.seek(0)
-            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            def acquire() -> None:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl  # type: ignore
-
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            def acquire() -> None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Windows LK_LOCK gives up after ten fixed retries, which is too short
+        # for several simultaneous Git metadata captures. Use one bounded policy.
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                acquire()
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise ContextError(f"timed out waiting for ledger lock: {lock_path}") from exc
+                time.sleep(0.05)
         yield
     finally:
         if os.name == "nt":

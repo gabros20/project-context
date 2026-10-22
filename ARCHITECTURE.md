@@ -1,4 +1,4 @@
-# Project Context v0.5 — Architecture
+# Project Context v0.7 — Architecture
 
 ## 1. Objective
 
@@ -54,7 +54,7 @@ Rich episodic memory for one coherent unit of durable work. Its narrative `conte
 
 ### Reflection
 
-A new append-only record that consolidates durable understanding from older observations. It never rewrites or deletes history. Coverage is scope-aware, calculated under the append lock, and points to the source range and supporting entry IDs. A reflection never advances an unrelated subsystem's frontier.
+A new append-only record that consolidates durable understanding from older observations. It never rewrites or deletes history. Coverage is explicit and scope-aware, calculated under the append lock, and points to the source range and supporting entry IDs. A narrow reflection never acts as a global cutoff; mixed-scope sources remain visible for uncovered scopes. A reflection never advances an unrelated subsystem's frontier.
 
 ### Handoff
 
@@ -67,7 +67,7 @@ Raw storage is rich JSONL with full field names such as `version`, `timestamp`, 
 Default startup strategy:
 
 ```text
-latest relevant reflection
+relevant source-backed reflections
           +
 important unreflected tail
           +
@@ -189,7 +189,7 @@ The protocol is independent of which transport is chosen.
 ## 12. Package layout
 
 ```text
-project-context-v0.5.0/
+project-context-v0.7.0/
 ├── SKILL.md
 ├── README.md
 ├── INSTALL.md
@@ -238,3 +238,11 @@ SESSION END
 ```
 
 The durable invariant is simple: **observations preserve episodes, reflections preserve durable understanding, handoffs preserve the work frontier, and host adapters remain disposable plumbing around the same memory core.**
+
+## 14. Agent efficiency in v0.7
+
+The local CLI offers field-weighted lexical search, exact scope/path filtering, source expansion, semantic schema/templates, and guided reflection preparation. It does not require embeddings, a model call, or a database. Current views fold explicit supersession and resolution; the immutable ledger remains available for history.
+
+Tight packets prioritize actionable state and durable constraints before prose. The shared schema supplies semantic and stored-record validation with indexed errors. Idempotency keys make semantic retries safe. Locks now follow the canonical ledger; runtime defaults to repository-local `.agent/runtime` with an explicit override. Existing v0.6 writers must finish before mixed-version concurrent writes because their lock location differs.
+
+Session emission is deduplicated within one host session and refreshed after compaction. Health reports distinguish emitted output from acknowledged consumption, which the portable CLI cannot observe. Generated adapters bound subprocess time; the CLI and tests preserve host-native neutral failure responses. CI exercises Python3.10/3.12 on Linux, Python3.12 on Windows, and generated adapter entry points with stub host APIs, not every live harness.

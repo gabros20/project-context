@@ -101,9 +101,9 @@ A reflection may include:
 }
 ```
 
-`through_entry_id` means the reflection has considered history through that point. `supporting_entry_ids` identifies the entries that materially support the reflected durable state.
+`from_entry_id` and `through_entry_id` describe the source range. Only explicit `supporting_entry_ids` plus applicable scope establish which sources the reflection represents.
 
-Automatic coverage is scoped. The CLI finds the previous reflection whose scope overlaps the new reflection, then covers only subsequent observations and handoffs in the new reflection's scope. An empty scope is project-wide. Coverage calculation and append happen under the same ledger lock.
+Automatic coverage is scoped. The CLI gathers observations and handoffs not already represented by applicable explicit source coverage. It never advances a global cutoff because a narrow reflection is newer. An empty scope is project-wide. Coverage calculation and append happen under the same ledger lock.
 
 `coverage.scope` records the scope used for the calculation. `through_entry_id` is a scoped watermark, never permission to hide unrelated subsystem history.
 
@@ -152,4 +152,4 @@ Locks live in `.ctx-locks` next to the canonical ledger so all cooperating proce
 
 `doctor --host <host> --json --self-test` validates the local ledger and bounded packet and reports project hook presence, writable paths, and emission metadata. Emitted does not mean acknowledged by the host. Delivery state is session-local; compaction requests a fresh baseline even when content is unchanged. Existing global-cache runtime state is ephemeral and is not migrated; durable records remain compatible.
 
-When upgrading from0.6, finish old agent sessions before allowing concurrent writers: new locks are ledger-adjacent, while older installations use home-cache locks. Do not run mixed runtime versions against the same ledger concurrently. No historical JSONL rewrite is required. Reinstall hooks through the bundled installer to pick up bounded adapter subprocesses.
+When upgrading from 0.6, finish old agent sessions before allowing concurrent writers: new locks are ledger-adjacent, while older installations use home-cache locks. Do not run mixed runtime versions against the same ledger concurrently. No historical JSONL rewrite is required. Reinstall hooks through the bundled installer to pick up bounded adapter subprocesses.
